@@ -127,7 +127,10 @@ export const generateFormCollection = (
             const block = fields[fieldKey]
 
             if (block === undefined && typeof fieldConfig === 'object') {
-              return fieldConfig
+              return {
+                slug: fieldKey,
+                ...fieldConfig,
+              }
             }
 
             if (typeof block === 'object' && typeof fieldConfig === 'object') {
