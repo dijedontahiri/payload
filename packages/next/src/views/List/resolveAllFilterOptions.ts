@@ -28,9 +28,13 @@ export const resolveAllFilterOptions = async ({
       }
 
       const fieldPath = fieldAffectsData(field)
-        ? pathPrefix
-          ? `${pathPrefix}.${field.name}`
-          : field.name
+        ? 'virtual' in field && typeof field.virtual === 'string'
+          ? pathPrefix
+            ? `${pathPrefix}.${field.virtual}`
+            : field.virtual
+          : pathPrefix
+            ? `${pathPrefix}.${field.name}`
+            : field.name
         : pathPrefix
 
       if (
