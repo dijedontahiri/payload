@@ -1,0 +1,72 @@
+name: Validate issue 18215
+
+on:
+  push:
+    branches:
+      - validate/18215-virtual-filter-options-20260918
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    if: github.repository == 'dijedontahiri/payload'
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+        with:
+          ref: 4ed99e320c7f374788f42f4c483d4321f41c8e88
+          fetch-depth: 0
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.13.0
+
+      - name: Set up pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.9.0 --activate
+          node --version
+          pnpm --version
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        timeout-minutes: 15
+
+      - name: Verify baseline regression fails for intended assertion
+        shell: bash
+        run: |
+          git checkout 93111ff435e2deb81923bc9025310b9c7f61d485 -- packages/next/src/views/List/resolveAllFilterOptions.ts
+          set +e
+          pnpm exec vitest run --project unit packages/next/src/views/List/resolveAllFilterOptions.spec.ts 2>&1 | tee /tmp/baseline.log
+          status=${PIPESTATUS[0]}
+          set -e
+          if [ "$status" -eq 0 ]; then
+            echo 'Baseline unexpectedly passed.'
+            exit 1
+          fi
+          grep -q 'should key virtual relationship filter options by the virtual path' /tmp/baseline.log
+          grep -q 'AssertionError' /tmp/baseline.log
+          git checkout 4ed99e320c7f374788f42f4c483d4321f41c8e88 -- packages/next/src/views/List/resolveAllFilterOptions.ts
+
+      - name: Run focused regression on candidate
+        run: pnpm exec vitest run --project unit packages/next/src/views/List/resolveAllFilterOptions.spec.ts
+
+      - name: Lint affected package
+        run: pnpm --filter @payloadcms/next lint
+
+      - name: Check formatting
+        run: pnpm exec prettier --check packages/next/src/views/List/resolveAllFilterOptions.ts packages/next/src/views/List/resolveAllFilterOptions.spec.ts
+
+      - name: Build affected package
+        run: pnpm build:next
+        timeout-minutes: 15
+
+      - name: Run relationship browser coverage on SQLite
+        env:
+          PAYLOAD_DATABASE: sqlite
+        run: pnpm test:e2e fields-relationship
+        timeout-minutes: 20
