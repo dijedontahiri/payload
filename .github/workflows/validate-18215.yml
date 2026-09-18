@@ -65,6 +65,10 @@ jobs:
         run: pnpm build:next
         timeout-minutes: 15
 
+      - name: Install Playwright browser and dependencies
+        run: pnpm exec playwright install --with-deps chromium --no-shell
+        timeout-minutes: 10
+
       - name: Run relationship browser coverage on SQLite
         env:
           PAYLOAD_DATABASE: sqlite
