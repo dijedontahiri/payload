@@ -8,13 +8,13 @@ import { generateFormCollection } from './index.js'
 
 const getBlocks = (config: FormBuilderPluginConfig): Block[] => {
   const collection = generateFormCollection(config)
-  const field = collection.fields.find((field) => 'name' in field && field.name === 'fields')
+  const blockField = collection.fields.find((field) => 'name' in field && field.name === 'fields')
 
-  if (field?.type !== 'blocks') {
+  if (blockField?.type !== 'blocks') {
     throw new Error('Expected the generated form fields block field')
   }
 
-  return field.blocks
+  return blockField.blocks
 }
 
 describe('custom form field blocks', () => {
@@ -24,9 +24,7 @@ describe('custom form field blocks', () => {
       labels: { plural: 'Hidden fields', singular: 'Hidden field' },
     }
 
-    expect(getBlocks({ fields: { hidden: customField } })).toEqual([
-      { slug: 'hidden', ...customField },
-    ])
+    expect(getBlocks({ fields: { hidden: customField } })).toEqual([{ slug: 'hidden', ...customField }])
   })
 
   it('preserves an explicitly configured custom block slug', () => {
