@@ -1,5 +1,7 @@
-import { describe, it, expect } from 'vitest'
+import { describe, expect, it } from 'vitest'
+
 import { fieldSchemasToFormState } from './index.js'
+import { renderField } from './renderField.js'
 
 describe('Form - fieldSchemasToFormState', () => {
   const defaultValue = 'Default'
@@ -55,5 +57,55 @@ describe('Form - fieldSchemasToFormState', () => {
       user,
     })
     expect(state.text.value).toBe(defaultValue)
+  })
+
+  it('renders a custom block component into row form state', () => {
+    const block = {
+      admin: {
+        components: {
+          Block: './CustomBlock.js',
+        },
+      },
+      fields: [],
+      labels: {
+        plural: 'Custom blocks',
+        singular: 'Custom block',
+      },
+      slug: 'custom',
+    }
+    const field = {
+      blocks: [block],
+      name: 'layout',
+      type: 'blocks',
+    }
+    const fieldState = {
+      rows: [
+        {
+          blockType: 'custom',
+          id: 'row-1',
+        },
+      ],
+    }
+
+    renderField({
+      clientFieldSchemaMap: new Map([['layout', field]]),
+      fieldConfig: field,
+      fieldState,
+      mockRSCs: true,
+      operation: 'update',
+      path: 'layout',
+      permissions: true,
+      readOnly: false,
+      renderAllFields: true,
+      req: {
+        payload: {
+          blocks: {},
+          importMap: {},
+        },
+      },
+      schemaPath: 'layout',
+    })
+
+    expect(fieldState.rows[0].customComponents.Block).toBe('Mock')
   })
 })
