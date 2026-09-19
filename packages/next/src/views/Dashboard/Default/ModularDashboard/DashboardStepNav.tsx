@@ -117,6 +117,7 @@ export function DashboardBreadcrumbDropdown(props: {
 
   return (
     <ReactSelect
+      aria-label={t('general:dashboard')}
       className="dashboard-breadcrumb-select"
       isClearable={false}
       isSearchable={false}
