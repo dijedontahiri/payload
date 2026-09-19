@@ -56,7 +56,7 @@ jobs:
           from pathlib import Path
 
           text = Path('harness/.github/workflows/prepare-18217.yml').read_text()
-          match = re.search(r"run: echo '([^']+)' \\| base64 -d > /tmp/patch-18217.py", text)
+          match = re.search(r"run: echo '([^']+)' \| base64 -d > /tmp/patch-18217.py", text)
           if not match:
               raise SystemExit('Could not recover immutable patch script')
           Path('/tmp/patch-18217.py').write_bytes(base64.b64decode(match.group(1)))
