@@ -139,88 +139,92 @@ export const BlockRow: React.FC<BlocksFieldProps> = ({
         transform,
       }}
     >
-      <Collapsible
-        actions={
-          !readOnly ? (
-            <RowActions
-              addRow={addRow}
-              blocks={blocks}
-              blockType={row.blockType}
-              copyRow={copyRow}
-              duplicateRow={duplicateRow}
-              fields={block.fields}
-              hasMaxRows={hasMaxRows}
-              isSortable={isSortable}
-              labels={labels}
-              moveRow={moveRow}
-              pasteRow={pasteRow}
-              removeRow={removeRow}
-              rowCount={rowCount}
-              rowIndex={rowIndex}
-            />
-          ) : undefined
-        }
-        className={classNames}
-        collapsibleStyle={fieldHasErrors ? 'error' : 'default'}
-        dragHandleProps={
-          isSortable
-            ? {
-                id: row.id,
-                attributes,
-                listeners,
-              }
-            : undefined
-        }
-        header={
-          isLoading ? (
-            <ShimmerEffect height="1rem" width="8rem" />
-          ) : (
-            <div className={`${baseClass}__block-header`}>
-              <RowLabel
-                CustomComponent={Label}
-                label={
-                  <>
-                    <span className={`${baseClass}__block-number`}>
-                      {String(rowIndex + 1).padStart(2, '0')}
-                    </span>
-                    <Pill
-                      className={`${baseClass}__block-pill ${baseClass}__block-pill-${row.blockType}`}
-                      pillStyle="white"
-                      size="small"
-                    >
-                      {getTranslation(block.labels.singular, i18n)}
-                    </Pill>
-                    {showBlockName && (
-                      <SectionTitle path={`${path}.blockName`} readOnly={readOnly} />
-                    )}
-                  </>
-                }
-                path={path}
-                rowNumber={rowIndex}
+      {row.customComponents?.Block !== undefined ? (
+        row.customComponents.Block
+      ) : (
+        <Collapsible
+          actions={
+            !readOnly ? (
+              <RowActions
+                addRow={addRow}
+                blocks={blocks}
+                blockType={row.blockType}
+                copyRow={copyRow}
+                duplicateRow={duplicateRow}
+                fields={block.fields}
+                hasMaxRows={hasMaxRows}
+                isSortable={isSortable}
+                labels={labels}
+                moveRow={moveRow}
+                pasteRow={pasteRow}
+                removeRow={removeRow}
+                rowCount={rowCount}
+                rowIndex={rowIndex}
               />
-              {fieldHasErrors && <ErrorPill count={errorCount} i18n={i18n} withMessage />}
-            </div>
-          )
-        }
-        isCollapsed={row.collapsed}
-        key={row.id}
-        onToggle={(collapsed) => setCollapse(row.id, collapsed)}
-      >
-        {isLoading ? (
-          <ShimmerEffect />
-        ) : (
-          <RenderFields
-            className={`${baseClass}__fields`}
-            fields={fields}
-            margins="small"
-            parentIndexPath=""
-            parentPath={path}
-            parentSchemaPath={schemaPath}
-            permissions={blockPermissions}
-            readOnly={readOnly}
-          />
-        )}
-      </Collapsible>
+            ) : undefined
+          }
+          className={classNames}
+          collapsibleStyle={fieldHasErrors ? 'error' : 'default'}
+          dragHandleProps={
+            isSortable
+              ? {
+                  id: row.id,
+                  attributes,
+                  listeners,
+                }
+              : undefined
+          }
+          header={
+            isLoading ? (
+              <ShimmerEffect height="1rem" width="8rem" />
+            ) : (
+              <div className={`${baseClass}__block-header`}>
+                <RowLabel
+                  CustomComponent={Label}
+                  label={
+                    <>
+                      <span className={`${baseClass}__block-number`}>
+                        {String(rowIndex + 1).padStart(2, '0')}
+                      </span>
+                      <Pill
+                        className={`${baseClass}__block-pill ${baseClass}__block-pill-${row.blockType}`}
+                        pillStyle="white"
+                        size="small"
+                      >
+                        {getTranslation(block.labels.singular, i18n)}
+                      </Pill>
+                      {showBlockName && (
+                        <SectionTitle path={`${path}.blockName`} readOnly={readOnly} />
+                      )}
+                    </>
+                  }
+                  path={path}
+                  rowNumber={rowIndex}
+                />
+                {fieldHasErrors && <ErrorPill count={errorCount} i18n={i18n} withMessage />}
+              </div>
+            )
+          }
+          isCollapsed={row.collapsed}
+          key={row.id}
+          onToggle={(collapsed) => setCollapse(row.id, collapsed)}
+        >
+          {isLoading ? (
+            <ShimmerEffect />
+          ) : (
+            <RenderFields
+              className={`${baseClass}__fields`}
+              fields={fields}
+              margins="small"
+              parentIndexPath=""
+              parentPath={path}
+              parentSchemaPath={schemaPath}
+              permissions={blockPermissions}
+              readOnly={readOnly}
+            />
+          )}
+        </Collapsible>
+      )}
     </div>
   )
 }
