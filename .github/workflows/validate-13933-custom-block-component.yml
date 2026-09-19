@@ -17,16 +17,16 @@ jobs:
       - name: Checkout exact candidate
         uses: actions/checkout@v4
         with:
-          ref: 57a580a836fd83682f17e679cc0d4a5d2808d0a1
-          fetch-depth: 8
+          ref: 11f26801cead2fd21842204e4a6b08b338056077
+          fetch-depth: 10
 
       - name: Verify candidate identity and save regression
         run: |
-          test "$(git rev-parse HEAD)" = "57a580a836fd83682f17e679cc0d4a5d2808d0a1"
+          test "$(git rev-parse HEAD)" = "11f26801cead2fd21842204e4a6b08b338056077"
           git merge-base --is-ancestor d58f8fba427dda48101ba274ef6f3889690fb244 HEAD
           git diff --check d58f8fba427dda48101ba274ef6f3889690fb244..HEAD
           git diff --name-only d58f8fba427dda48101ba274ef6f3889690fb244..HEAD
-          cp packages/ui/src/forms/fieldSchemasToFormState/fieldSchemasToFormState.spec.js /tmp/fieldSchemasToFormState.spec.js
+          cp packages/ui/src/forms/fieldSchemasToFormState/renderField.spec.ts /tmp/renderField.spec.ts
 
       - name: Set up Node
         uses: actions/setup-node@v4
@@ -47,9 +47,9 @@ jobs:
       - name: Prove regression fails on baseline
         run: |
           git checkout --detach d58f8fba427dda48101ba274ef6f3889690fb244
-          cp /tmp/fieldSchemasToFormState.spec.js packages/ui/src/forms/fieldSchemasToFormState/fieldSchemasToFormState.spec.js
+          cp /tmp/renderField.spec.ts packages/ui/src/forms/fieldSchemasToFormState/renderField.spec.ts
           set +e
-          pnpm exec vitest run --project unit packages/ui/src/forms/fieldSchemasToFormState/fieldSchemasToFormState.spec.js > /tmp/baseline.log 2>&1
+          pnpm exec vitest run --project unit packages/ui/src/forms/fieldSchemasToFormState/renderField.spec.ts > /tmp/baseline.log 2>&1
           status=$?
           set -e
           cat /tmp/baseline.log
@@ -60,17 +60,17 @@ jobs:
         run: |
           git reset --hard
           git clean -fd
-          git checkout --detach 57a580a836fd83682f17e679cc0d4a5d2808d0a1
-          test "$(git rev-parse HEAD)" = "57a580a836fd83682f17e679cc0d4a5d2808d0a1"
+          git checkout --detach 11f26801cead2fd21842204e4a6b08b338056077
+          test "$(git rev-parse HEAD)" = "11f26801cead2fd21842204e4a6b08b338056077"
 
       - name: Run focused regression suite
-        run: pnpm exec vitest run --project unit packages/ui/src/forms/fieldSchemasToFormState/fieldSchemasToFormState.spec.js
+        run: pnpm exec vitest run --project unit packages/ui/src/forms/fieldSchemasToFormState/renderField.spec.ts
 
       - name: Check formatting
-        run: pnpm exec prettier --check packages/payload/src/admin/forms/Form.ts packages/ui/src/forms/fieldSchemasToFormState/renderField.tsx packages/ui/src/forms/fieldSchemasToFormState/fieldSchemasToFormState.spec.js packages/ui/src/fields/Blocks/BlockRow.tsx
+        run: pnpm exec prettier --check packages/payload/src/admin/forms/Form.ts packages/ui/src/forms/fieldSchemasToFormState/renderField.tsx packages/ui/src/forms/fieldSchemasToFormState/renderField.spec.ts packages/ui/src/fields/Blocks/BlockRow.tsx
 
       - name: Lint changed files
-        run: pnpm exec eslint packages/payload/src/admin/forms/Form.ts packages/ui/src/forms/fieldSchemasToFormState/renderField.tsx packages/ui/src/forms/fieldSchemasToFormState/fieldSchemasToFormState.spec.js packages/ui/src/fields/Blocks/BlockRow.tsx
+        run: pnpm exec eslint packages/payload/src/admin/forms/Form.ts packages/ui/src/forms/fieldSchemasToFormState/renderField.tsx packages/ui/src/forms/fieldSchemasToFormState/renderField.spec.ts packages/ui/src/fields/Blocks/BlockRow.tsx
 
       - name: Build payload types
         run: pnpm --filter payload build:types
@@ -84,4 +84,4 @@ jobs:
         run: |
           git diff --check d58f8fba427dda48101ba274ef6f3889690fb244..HEAD
           test "$(git diff --name-only d58f8fba427dda48101ba274ef6f3889690fb244..HEAD | wc -l)" -eq 4
-          git status --short
+          test -z "$(git status --porcelain)"
