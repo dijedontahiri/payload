@@ -1,0 +1,63 @@
+name: Validate exact issue 18217 product commit
+
+on:
+  push:
+    branches:
+      - validate/18217-product-20260919
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    if: github.repository == 'dijedontahiri/payload'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+        with:
+          ref: e890e08da04ad66d3a92a1298512cd321446fb2d
+          fetch-depth: 1
+
+      - name: Verify exact candidate identity
+        run: |
+          test "$(git rev-parse HEAD)" = "e890e08da04ad66d3a92a1298512cd321446fb2d"
+          test "$(git rev-parse HEAD^)" = "d58f8fba427dda48101ba274ef6f3889690fb244"
+          test "$(git hash-object packages/payload/src/utilities/traverseFields.ts)" = "55005911c7a7e49d18553517798dc7cbda059b11"
+          test "$(git hash-object packages/payload/src/utilities/traverseFields.spec.ts)" = "c63901abedb348c16a6be3b23cfb90fd69ff1593"
+          git diff --check HEAD^
+          test "$(git diff --name-only HEAD^ HEAD | wc -l)" -eq 2
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.13.0
+
+      - name: Set up pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.9.0 --activate
+          node --version
+          pnpm --version
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        timeout-minutes: 15
+
+      - name: Run focused regression suite
+        run: pnpm exec vitest run --project unit packages/payload/src/utilities/traverseFields.spec.ts
+
+      - name: Check formatting
+        run: pnpm exec prettier --check packages/payload/src/utilities/traverseFields.ts packages/payload/src/utilities/traverseFields.spec.ts
+
+      - name: Lint changed files
+        run: pnpm exec eslint packages/payload/src/utilities/traverseFields.ts packages/payload/src/utilities/traverseFields.spec.ts
+
+      - name: Build translations types prerequisite
+        run: pnpm --filter @payloadcms/translations build:types
+        timeout-minutes: 10
+
+      - name: Type build payload package
+        run: pnpm --filter payload build:types
+        timeout-minutes: 10
