@@ -1,0 +1,87 @@
+name: Validate issue 13933 custom block component
+
+on:
+  push:
+    branches:
+      - validate/13933-custom-block-component-20260919
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    if: github.repository == 'dijedontahiri/payload'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+        with:
+          ref: 57a580a836fd83682f17e679cc0d4a5d2808d0a1
+          fetch-depth: 8
+
+      - name: Verify candidate identity and save regression
+        run: |
+          test "$(git rev-parse HEAD)" = "57a580a836fd83682f17e679cc0d4a5d2808d0a1"
+          git merge-base --is-ancestor d58f8fba427dda48101ba274ef6f3889690fb244 HEAD
+          git diff --check d58f8fba427dda48101ba274ef6f3889690fb244..HEAD
+          git diff --name-only d58f8fba427dda48101ba274ef6f3889690fb244..HEAD
+          cp packages/ui/src/forms/fieldSchemasToFormState/fieldSchemasToFormState.spec.js /tmp/fieldSchemasToFormState.spec.js
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.13.0
+
+      - name: Set up pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.9.0 --activate
+          node --version
+          pnpm --version
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        timeout-minutes: 15
+
+      - name: Prove regression fails on baseline
+        run: |
+          git checkout --detach d58f8fba427dda48101ba274ef6f3889690fb244
+          cp /tmp/fieldSchemasToFormState.spec.js packages/ui/src/forms/fieldSchemasToFormState/fieldSchemasToFormState.spec.js
+          set +e
+          pnpm exec vitest run --project unit packages/ui/src/forms/fieldSchemasToFormState/fieldSchemasToFormState.spec.js > /tmp/baseline.log 2>&1
+          status=$?
+          set -e
+          cat /tmp/baseline.log
+          test "$status" -ne 0
+          grep -q "expected undefined to be 'Mock'" /tmp/baseline.log
+
+      - name: Restore exact candidate
+        run: |
+          git reset --hard
+          git clean -fd
+          git checkout --detach 57a580a836fd83682f17e679cc0d4a5d2808d0a1
+          test "$(git rev-parse HEAD)" = "57a580a836fd83682f17e679cc0d4a5d2808d0a1"
+
+      - name: Run focused regression suite
+        run: pnpm exec vitest run --project unit packages/ui/src/forms/fieldSchemasToFormState/fieldSchemasToFormState.spec.js
+
+      - name: Check formatting
+        run: pnpm exec prettier --check packages/payload/src/admin/forms/Form.ts packages/ui/src/forms/fieldSchemasToFormState/renderField.tsx packages/ui/src/forms/fieldSchemasToFormState/fieldSchemasToFormState.spec.js packages/ui/src/fields/Blocks/BlockRow.tsx
+
+      - name: Lint changed files
+        run: pnpm exec eslint packages/payload/src/admin/forms/Form.ts packages/ui/src/forms/fieldSchemasToFormState/renderField.tsx packages/ui/src/forms/fieldSchemasToFormState/fieldSchemasToFormState.spec.js packages/ui/src/fields/Blocks/BlockRow.tsx
+
+      - name: Build payload types
+        run: pnpm --filter payload build:types
+        timeout-minutes: 12
+
+      - name: Build UI package
+        run: pnpm build:ui
+        timeout-minutes: 12
+
+      - name: Review exact diff
+        run: |
+          git diff --check d58f8fba427dda48101ba274ef6f3889690fb244..HEAD
+          test "$(git diff --name-only d58f8fba427dda48101ba274ef6f3889690fb244..HEAD | wc -l)" -eq 4
+          git status --short
