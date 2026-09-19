@@ -1,0 +1,139 @@
+name: Final validation issue 18217
+
+on:
+  push:
+    branches:
+      - validate/18217-final-20260919
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    if: github.repository == 'dijedontahiri/payload'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout immutable harness source
+        uses: actions/checkout@v4
+        with:
+          repository: dijedontahiri/payload
+          ref: 4cfa83f9ee84da800e9bf30e8346491435666f3b
+          path: harness
+          fetch-depth: 1
+
+      - name: Checkout exact upstream candidate base
+        uses: actions/checkout@v4
+        with:
+          repository: payloadcms/payload
+          ref: d58f8fba427dda48101ba274ef6f3889690fb244
+          path: source
+          fetch-depth: 1
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.13.0
+
+      - name: Set up pnpm
+        working-directory: source
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.9.0 --activate
+          node --version
+          pnpm --version
+
+      - name: Install dependencies
+        working-directory: source
+        run: pnpm install --frozen-lockfile
+        timeout-minutes: 15
+
+      - name: Recover deterministic patch script
+        run: |
+          python - <<'PY'
+          import base64
+          import re
+          from pathlib import Path
+
+          text = Path('harness/.github/workflows/prepare-18217.yml').read_text()
+          match = re.search(r"run: echo '([^']+)' \\| base64 -d > /tmp/patch-18217.py", text)
+          if not match:
+              raise SystemExit('Could not recover immutable patch script')
+          Path('/tmp/patch-18217.py').write_bytes(base64.b64decode(match.group(1)))
+          PY
+
+      - name: Add regression tests
+        working-directory: source
+        run: python /tmp/patch-18217.py tests
+
+      - name: Verify baseline regressions fail for intended assertions
+        working-directory: source
+        shell: bash
+        run: |
+          set +e
+          pnpm exec vitest run --project unit packages/payload/src/utilities/traverseFields.spec.ts -t 'locale-resolved localized data' 2>&1 | tee /tmp/baseline.log
+          status=${PIPESTATUS[0]}
+          set -e
+          if [ "$status" -eq 0 ]; then
+            echo 'Baseline unexpectedly passed'
+            exit 1
+          fi
+          grep -q 'should traverse a localized group in locale-resolved shape' /tmp/baseline.log
+          grep -q 'should traverse a localized named tab in locale-resolved shape' /tmp/baseline.log
+          grep -q 'AssertionError' /tmp/baseline.log
+
+      - name: Apply focused fix
+        working-directory: source
+        run: python /tmp/patch-18217.py fix
+
+      - name: Run focused unit regression suite
+        working-directory: source
+        run: pnpm exec vitest run --project unit packages/payload/src/utilities/traverseFields.spec.ts
+
+      - name: Format changed files
+        working-directory: source
+        run: |
+          pnpm exec prettier --write packages/payload/src/utilities/traverseFields.ts packages/payload/src/utilities/traverseFields.spec.ts
+          pnpm exec prettier --check packages/payload/src/utilities/traverseFields.ts packages/payload/src/utilities/traverseFields.spec.ts
+
+      - name: Re-run regression after formatting
+        working-directory: source
+        run: pnpm exec vitest run --project unit packages/payload/src/utilities/traverseFields.spec.ts
+
+      - name: Lint changed files
+        working-directory: source
+        run: pnpm exec eslint packages/payload/src/utilities/traverseFields.ts packages/payload/src/utilities/traverseFields.spec.ts
+
+      - name: Build translations types prerequisite
+        working-directory: source
+        run: pnpm --filter @payloadcms/translations build:types
+        timeout-minutes: 10
+
+      - name: Type build payload package
+        working-directory: source
+        run: pnpm --filter payload build:types
+        timeout-minutes: 10
+
+      - name: Review exact candidate diff
+        working-directory: source
+        run: |
+          git diff --check
+          git status --short
+          git diff -- packages/payload/src/utilities/traverseFields.ts packages/payload/src/utilities/traverseFields.spec.ts
+          test "$(git status --short | wc -l)" -eq 2
+
+      - name: Stage exact candidate artifact
+        run: |
+          mkdir -p /tmp/candidate/packages/payload/src/utilities
+          cp source/packages/payload/src/utilities/traverseFields.ts /tmp/candidate/packages/payload/src/utilities/
+          cp source/packages/payload/src/utilities/traverseFields.spec.ts /tmp/candidate/packages/payload/src/utilities/
+          (cd source && git diff) > /tmp/candidate/18217.patch
+          printf '%s\n' 'd58f8fba427dda48101ba274ef6f3889690fb244' > /tmp/candidate/base-sha.txt
+
+      - name: Upload exact verified candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: candidate-18217-final
+          path: /tmp/candidate
+          if-no-files-found: error
+          retention-days: 1
