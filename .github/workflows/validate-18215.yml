@@ -36,23 +36,23 @@ jobs:
         run: pnpm install --frozen-lockfile
         timeout-minutes: 15
 
-      - name: Verify baseline regression fails for intended assertion
+      - name: Verify unit regression fails on baseline for intended assertion
         shell: bash
         run: |
           git checkout 93111ff435e2deb81923bc9025310b9c7f61d485 -- packages/next/src/views/List/resolveAllFilterOptions.ts
           set +e
-          pnpm exec vitest run --project unit packages/next/src/views/List/resolveAllFilterOptions.spec.ts 2>&1 | tee /tmp/baseline.log
+          pnpm exec vitest run --project unit packages/next/src/views/List/resolveAllFilterOptions.spec.ts 2>&1 | tee /tmp/baseline-unit.log
           status=${PIPESTATUS[0]}
           set -e
           if [ "$status" -eq 0 ]; then
-            echo 'Baseline unexpectedly passed.'
+            echo 'Baseline unit regression unexpectedly passed.'
             exit 1
           fi
-          grep -q 'should key virtual relationship filter options by the virtual path' /tmp/baseline.log
-          grep -q 'AssertionError' /tmp/baseline.log
+          grep -q 'should key virtual relationship filter options by the virtual path' /tmp/baseline-unit.log
+          grep -q 'AssertionError' /tmp/baseline-unit.log
           git checkout 4ed99e320c7f374788f42f4c483d4321f41c8e88 -- packages/next/src/views/List/resolveAllFilterOptions.ts
 
-      - name: Run focused regression on candidate
+      - name: Run focused unit regression on candidate
         run: pnpm exec vitest run --project unit packages/next/src/views/List/resolveAllFilterOptions.spec.ts
 
       - name: Lint affected package
@@ -69,8 +69,102 @@ jobs:
         run: pnpm exec playwright install --with-deps chromium --no-shell
         timeout-minutes: 10
 
-      - name: Run relationship browser coverage on SQLite
+      - name: Create focused Where Builder browser harness
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          config_path = Path('test/fields-relationship/collections/Relationship/index.ts')
+          config = config_path.read_text()
+          config_marker = """    {
+                type: 'collapsible',
+                label: 'Collapsible',"""
+          virtual_field = """    {
+                name: 'virtualRelationshipFilteredByField',
+                label: 'Virtual Relationship Filtered By Field',
+                filterOptions: () => {
+                  return {
+                    filter: {
+                      equals: 'Include me',
+                    },
+                  }
+                },
+                relationTo: slug,
+                type: 'relationship',
+                virtual: 'relationToSelf.relationshipFilteredByField',
+              },
+          """
+          if config.count(config_marker) != 1:
+              raise SystemExit('Relationship config insertion point changed')
+          config_path.write_text(config.replace(config_marker, virtual_field + config_marker, 1))
+
+          spec_path = Path('test/fields-relationship/e2e.spec.ts')
+          spec = spec_path.read_text()
+          test_marker = """    test('should apply `filterOptions` of nested fields to list view filter controls', async () => {"""
+          focused_test = """    test('should apply filterOptions to virtual relationship paths in list view', async () => {
+                const included = await payload.create({
+                  collection: slug,
+                  data: {
+                    filter: 'Include me',
+                  },
+                })
+                const excluded = await payload.create({
+                  collection: slug,
+                  data: {
+                    filter: 'Exclude me',
+                  },
+                })
+
+                await page.goto(url.list)
+                await wait(300)
+
+                const { condition } = await addListFilter({
+                  page,
+                  fieldLabel: 'Virtual Relationship Filtered By Field',
+                  operatorLabel: 'equals',
+                })
+
+                const valueInput = condition.locator('.condition__value input')
+                await valueInput.click()
+                const valueOptions = condition.locator('.condition__value .rs__option')
+
+                await expect(valueOptions).toContainText(included.id)
+                await expect(
+                  valueOptions,
+                  'virtual filterOptions must exclude the blocked relation',
+                ).not.toContainText(excluded.id)
+              })
+
+          """
+          if spec.count(test_marker) != 1:
+              raise SystemExit('Relationship e2e insertion point changed')
+          spec_path.write_text(spec.replace(test_marker, focused_test + test_marker, 1))
+          PY
+
+          pnpm exec prettier --write test/fields-relationship/collections/Relationship/index.ts test/fields-relationship/e2e.spec.ts
+          git diff --check
+
+      - name: Verify browser regression fails on baseline for intended assertion
+        shell: bash
         env:
           PAYLOAD_DATABASE: sqlite
-        run: pnpm test:e2e fields-relationship
-        timeout-minutes: 20
+        run: |
+          git checkout 93111ff435e2deb81923bc9025310b9c7f61d485 -- packages/next/src/views/List/resolveAllFilterOptions.ts
+          set +e
+          pnpm test:e2e fields-relationship --grep "should apply filterOptions to virtual relationship paths in list view" --workers=1 2>&1 | tee /tmp/baseline-e2e.log
+          status=${PIPESTATUS[0]}
+          set -e
+          if [ "$status" -eq 0 ]; then
+            echo 'Baseline browser regression unexpectedly passed.'
+            exit 1
+          fi
+          grep -q 'should apply filterOptions to virtual relationship paths in list view' /tmp/baseline-e2e.log
+          grep -q 'virtual filterOptions must exclude the blocked relation' /tmp/baseline-e2e.log
+          git checkout 4ed99e320c7f374788f42f4c483d4321f41c8e88 -- packages/next/src/views/List/resolveAllFilterOptions.ts
+
+      - name: Run focused browser regression on exact candidate source
+        env:
+          PAYLOAD_DATABASE: sqlite
+        run: pnpm test:e2e fields-relationship --grep "should apply filterOptions to virtual relationship paths in list view" --workers=1
+        timeout-minutes: 15
