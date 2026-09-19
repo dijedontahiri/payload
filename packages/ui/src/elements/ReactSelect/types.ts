@@ -60,6 +60,7 @@ export type OptionGroup = {
 }
 
 export type ReactSelectAdapterProps = {
+  'aria-label'?: string
   backspaceRemovesValue?: boolean
   blurInputOnSelect?: boolean
   className?: string
