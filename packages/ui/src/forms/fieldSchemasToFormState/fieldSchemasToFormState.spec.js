@@ -106,6 +106,6 @@ describe('Form - fieldSchemasToFormState', () => {
       schemaPath: 'layout',
     })
 
-    expect(fieldState.rows[0].customComponents.Block).toBe('Mock')
+    expect(fieldState.rows[0].customComponents?.Block).toBe('Mock')
   })
 })
