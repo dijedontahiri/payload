@@ -25,7 +25,7 @@ jobs:
           test "$(git rev-parse HEAD)" = "c29d05da96dd5c154e15e977122372b481614d06"
           test "$(git rev-parse HEAD^)" = "d58f8fba427dda48101ba274ef6f3889690fb244"
           test "$(git hash-object packages/payload/src/utilities/traverseFields.spec.ts)" = "c63901abedb348c16a6be3b23cfb90fd69ff1593"
-          test "$(git hash-object packages/payload/src/utilities/traverseFields.ts)" = "364fba68a40e0b81e46332b35e91f36985c31fed"
+          test "$(git hash-object packages/payload/src/utilities/traverseFields.ts)" = "84cb0b010e5def42df1429bcbd043d3e111e0c9c"
           test "$(git diff --name-only HEAD^ HEAD | wc -l)" -eq 1
           git diff --check HEAD^
 
