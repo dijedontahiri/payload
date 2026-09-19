@@ -9,6 +9,31 @@ import {
 } from '../fields/config/types.js'
 import { expandOwnDottedKey } from './fieldPath.js'
 
+const refContainsFieldData = ({
+  fields,
+  ref,
+}: {
+  fields: (Field | TabAsField)[]
+  ref: Record<string, unknown>
+}): boolean =>
+  fields.some((field) => {
+    if (fieldAffectsData(field) && 'name' in field && typeof field.name === 'string') {
+      return field.name in ref
+    }
+
+    if (field.type === 'tabs') {
+      return field.tabs.some((tab) =>
+        tabHasName(tab) ? tab.name in ref : refContainsFieldData({ fields: tab.fields, ref }),
+      )
+    }
+
+    if (fieldHasSubFields(field)) {
+      return refContainsFieldData({ fields: field.fields, ref })
+    }
+
+    return false
+  })
+
 const traverseArrayOrBlocksField = ({
   callback,
   callbackStack,
@@ -260,24 +285,44 @@ export const traverseFields = ({
           tabRef = tabRef[tab.name as keyof typeof tabRef]
 
           if (tabIsLocalized) {
-            for (const key in tabRef as Record<string, unknown>) {
-              if (
-                tabRef[key as keyof typeof tabRef] &&
-                typeof tabRef[key as keyof typeof tabRef] === 'object'
-              ) {
-                traverseFields({
-                  callback,
-                  callbackStack,
-                  config,
-                  fields: tab.fields,
-                  fillEmpty,
-                  isTopLevel: false,
-                  leavesFirst,
-                  parentIsLocalized: true,
-                  parentPath: `${parentPath}${tab.name}.`,
-                  parentRef: currentParentRef,
-                  ref: tabRef[key as keyof typeof tabRef],
-                })
+            if (
+              tabRef &&
+              typeof tabRef === 'object' &&
+              refContainsFieldData({ fields: tab.fields, ref: tabRef as Record<string, unknown> })
+            ) {
+              traverseFields({
+                callback,
+                callbackStack,
+                config,
+                fields: tab.fields,
+                fillEmpty,
+                isTopLevel: false,
+                leavesFirst,
+                parentIsLocalized: true,
+                parentPath: `${parentPath}${tab.name}.`,
+                parentRef: currentParentRef,
+                ref: tabRef,
+              })
+            } else {
+              for (const key in tabRef as Record<string, unknown>) {
+                if (
+                  tabRef[key as keyof typeof tabRef] &&
+                  typeof tabRef[key as keyof typeof tabRef] === 'object'
+                ) {
+                  traverseFields({
+                    callback,
+                    callbackStack,
+                    config,
+                    fields: tab.fields,
+                    fillEmpty,
+                    isTopLevel: false,
+                    leavesFirst,
+                    parentIsLocalized: true,
+                    parentPath: `${parentPath}${tab.name}.`,
+                    parentRef: currentParentRef,
+                    ref: tabRef[key as keyof typeof tabRef],
+                  })
+                }
               }
             }
           }
@@ -365,21 +410,42 @@ export const traverseFields = ({
         typeof currentRef === 'object'
       ) {
         if (fieldAffectsData(field)) {
-          for (const key in currentRef as Record<string, unknown>) {
-            if (currentRef[key as keyof typeof currentRef]) {
-              traverseFields({
-                callback,
-                callbackStack,
-                config,
-                fields: field.fields,
-                fillEmpty,
-                isTopLevel: false,
-                leavesFirst,
-                parentIsLocalized: true,
-                parentPath: field.name ? `${parentPath}${field.name}.` : parentPath,
-                parentRef: currentParentRef,
-                ref: currentRef[key as keyof typeof currentRef],
-              })
+          if (
+            refContainsFieldData({
+              fields: field.fields,
+              ref: currentRef as Record<string, unknown>,
+            })
+          ) {
+            traverseFields({
+              callback,
+              callbackStack,
+              config,
+              fields: field.fields,
+              fillEmpty,
+              isTopLevel: false,
+              leavesFirst,
+              parentIsLocalized: true,
+              parentPath: field.name ? `${parentPath}${field.name}.` : parentPath,
+              parentRef: currentParentRef,
+              ref: currentRef,
+            })
+          } else {
+            for (const key in currentRef as Record<string, unknown>) {
+              if (currentRef[key as keyof typeof currentRef]) {
+                traverseFields({
+                  callback,
+                  callbackStack,
+                  config,
+                  fields: field.fields,
+                  fillEmpty,
+                  isTopLevel: false,
+                  leavesFirst,
+                  parentIsLocalized: true,
+                  parentPath: field.name ? `${parentPath}${field.name}.` : parentPath,
+                  parentRef: currentParentRef,
+                  ref: currentRef[key as keyof typeof currentRef],
+                })
+              }
             }
           }
         } else {
