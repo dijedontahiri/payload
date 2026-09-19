@@ -1,4 +1,4 @@
-name: Prepare 18217 localized traversal fix
+name: Validate 18217 localized traversal fix
 
 on:
   push:
@@ -6,10 +6,10 @@ on:
       - prepare/18217-traverse-localized-groups-20260919
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  prepare:
+  validate:
     if: github.repository == 'dijedontahiri/payload'
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -20,25 +20,26 @@ jobs:
           repository: payloadcms/payload
           ref: d58f8fba427dda48101ba274ef6f3889690fb244
           fetch-depth: 1
-          persist-credentials: false
 
-      - name: Setup Node
+      - name: Set up Node
         uses: actions/setup-node@v4
         with:
           node-version: 24.13.0
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 11.9.0
-          run_install: false
+      - name: Set up pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.9.0 --activate
+          node --version
+          pnpm --version
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+        timeout-minutes: 15
 
       - name: Add regression tests
         run: |
-          python <<'PY'
+          python - <<'PY'
           from pathlib import Path
 
           path = Path('packages/payload/src/utilities/traverseFields.spec.ts')
@@ -125,25 +126,24 @@ jobs:
           path.write_text(text[:index] + tests + text[index:])
           PY
 
-      - name: Verify baseline regressions fail
+      - name: Verify baseline regressions fail for intended assertions
         shell: bash
         run: |
           set +e
-          pnpm exec vitest run --project unit packages/payload/src/utilities/traverseFields.spec.ts -t 'locale-resolved localized data' > /tmp/baseline.log 2>&1
-          status=$?
+          pnpm exec vitest run --project unit packages/payload/src/utilities/traverseFields.spec.ts -t 'locale-resolved localized data' 2>&1 | tee /tmp/baseline.log
+          status=${PIPESTATUS[0]}
           set -e
-          cat /tmp/baseline.log
           if [ "$status" -eq 0 ]; then
             echo 'Baseline unexpectedly passed'
             exit 1
           fi
           grep -q 'should traverse a localized group in locale-resolved shape' /tmp/baseline.log
           grep -q 'should traverse a localized named tab in locale-resolved shape' /tmp/baseline.log
-          grep -Eq '2 failed|Tests[[:space:]]+2 failed' /tmp/baseline.log
+          grep -q 'AssertionError' /tmp/baseline.log
 
       - name: Apply focused fix
         run: |
-          python <<'PY'
+          python - <<'PY'
           from pathlib import Path
 
           path = Path('packages/payload/src/utilities/traverseFields.ts')
@@ -324,9 +324,6 @@ const refContainsFieldData = ({
       - name: Run focused unit regression suite
         run: pnpm exec vitest run --project unit packages/payload/src/utilities/traverseFields.spec.ts
 
-      - name: Lint changed files
-        run: pnpm exec eslint packages/payload/src/utilities/traverseFields.ts packages/payload/src/utilities/traverseFields.spec.ts
-
       - name: Format changed files
         run: |
           pnpm exec prettier --write packages/payload/src/utilities/traverseFields.ts packages/payload/src/utilities/traverseFields.spec.ts
@@ -335,23 +332,32 @@ const refContainsFieldData = ({
       - name: Re-run regression after formatting
         run: pnpm exec vitest run --project unit packages/payload/src/utilities/traverseFields.spec.ts
 
+      - name: Lint changed files
+        run: pnpm exec eslint packages/payload/src/utilities/traverseFields.ts packages/payload/src/utilities/traverseFields.spec.ts
+
       - name: Type build payload package
         run: pnpm --filter payload build:types
+        timeout-minutes: 10
 
-      - name: Review diff
+      - name: Review exact candidate diff
         run: |
           git diff --check
           git status --short
           git diff -- packages/payload/src/utilities/traverseFields.ts packages/payload/src/utilities/traverseFields.spec.ts
           test "$(git status --short | wc -l)" -eq 2
 
-      - name: Commit and push exact verified tree
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Stage candidate files for artifact
         run: |
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add packages/payload/src/utilities/traverseFields.ts packages/payload/src/utilities/traverseFields.spec.ts
-          git commit -m 'fix: traverse locale-resolved localized groups'
-          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-          git push origin HEAD:refs/heads/fix/18217-traverse-localized-groups
+          mkdir -p /tmp/candidate/packages/payload/src/utilities
+          cp packages/payload/src/utilities/traverseFields.ts /tmp/candidate/packages/payload/src/utilities/
+          cp packages/payload/src/utilities/traverseFields.spec.ts /tmp/candidate/packages/payload/src/utilities/
+          git diff > /tmp/candidate/18217.patch
+          printf '%s\n' 'd58f8fba427dda48101ba274ef6f3889690fb244' > /tmp/candidate/base-sha.txt
+
+      - name: Upload exact verified candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: candidate-18217
+          path: /tmp/candidate
+          if-no-files-found: error
+          retention-days: 1
