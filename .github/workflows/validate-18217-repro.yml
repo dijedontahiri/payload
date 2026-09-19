@@ -1,0 +1,58 @@
+name: Validate issue 18217 reproduction
+
+on:
+  push:
+    branches:
+      - validate/18217-repro-20260919
+
+permissions:
+  contents: read
+
+jobs:
+  reproduce:
+    if: github.repository == 'dijedontahiri/payload'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout exact reproduction
+        uses: actions/checkout@v4
+        with:
+          ref: c29d05da96dd5c154e15e977122372b481614d06
+          fetch-depth: 2
+
+      - name: Verify reproduction identity
+        run: |
+          test "$(git rev-parse HEAD)" = "c29d05da96dd5c154e15e977122372b481614d06"
+          test "$(git rev-parse HEAD^)" = "d58f8fba427dda48101ba274ef6f3889690fb244"
+          test "$(git hash-object packages/payload/src/utilities/traverseFields.spec.ts)" = "c63901abedb348c16a6be3b23cfb90fd69ff1593"
+          test "$(git hash-object packages/payload/src/utilities/traverseFields.ts)" = "364fba68a40e0b81e46332b35e91f36985c31fed"
+          test "$(git diff --name-only HEAD^ HEAD | wc -l)" -eq 1
+          git diff --check HEAD^
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.13.0
+
+      - name: Set up pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.9.0 --activate
+          node --version
+          pnpm --version
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        timeout-minutes: 15
+
+      - name: Prove focused regression fails for the intended assertions
+        shell: bash
+        run: |
+          set +e
+          pnpm exec vitest run --project unit packages/payload/src/utilities/traverseFields.spec.ts 2>&1 | tee /tmp/repro.log
+          status=${PIPESTATUS[0]}
+          set -e
+          test "$status" -ne 0
+          grep -F "should traverse a localized group in locale-resolved shape" /tmp/repro.log
+          grep -F "should traverse a localized named tab in locale-resolved shape" /tmp/repro.log
+          grep -F "expected false to be true" /tmp/repro.log
