@@ -1,0 +1,84 @@
+name: Validate issue 18140 dashboard breadcrumb a11y
+
+on:
+  push:
+    branches:
+      - validate/18140-dashboard-a11y-20260919
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    if: github.repository == 'dijedontahiri/payload'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+        with:
+          ref: 4cb329d0ff103cb4735343fa25518bf5a1308db4
+          fetch-depth: 4
+
+      - name: Verify candidate identity and save regression
+        run: |
+          test "$(git rev-parse HEAD)" = "4cb329d0ff103cb4735343fa25518bf5a1308db4"
+          test "$(git rev-list --max-parents=0 HEAD | head -n 1)" != ""
+          git merge-base --is-ancestor d58f8fba427dda48101ba274ef6f3889690fb244 HEAD
+          git diff --check d58f8fba427dda48101ba274ef6f3889690fb244..HEAD
+          git diff --name-only d58f8fba427dda48101ba274ef6f3889690fb244..HEAD
+          cp packages/next/src/views/Dashboard/Default/ModularDashboard/DashboardStepNav.spec.ts /tmp/DashboardStepNav.spec.ts
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.13.0
+
+      - name: Set up pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.9.0 --activate
+          node --version
+          pnpm --version
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        timeout-minutes: 15
+
+      - name: Prove regression fails on baseline
+        run: |
+          git checkout --detach d58f8fba427dda48101ba274ef6f3889690fb244
+          cp /tmp/DashboardStepNav.spec.ts packages/next/src/views/Dashboard/Default/ModularDashboard/DashboardStepNav.spec.ts
+          set +e
+          pnpm exec vitest run --project unit packages/next/src/views/Dashboard/Default/ModularDashboard/DashboardStepNav.spec.ts > /tmp/baseline.log 2>&1
+          status=$?
+          set -e
+          cat /tmp/baseline.log
+          test "$status" -ne 0
+          grep -q "general:dashboard" /tmp/baseline.log
+
+      - name: Restore exact candidate
+        run: |
+          git reset --hard
+          git clean -fd
+          git checkout --detach 4cb329d0ff103cb4735343fa25518bf5a1308db4
+          test "$(git rev-parse HEAD)" = "4cb329d0ff103cb4735343fa25518bf5a1308db4"
+
+      - name: Run focused regression suite
+        run: pnpm exec vitest run --project unit packages/next/src/views/Dashboard/Default/ModularDashboard/DashboardStepNav.spec.ts
+
+      - name: Check formatting
+        run: pnpm exec prettier --check packages/next/src/views/Dashboard/Default/ModularDashboard/DashboardStepNav.tsx packages/next/src/views/Dashboard/Default/ModularDashboard/DashboardStepNav.spec.ts packages/ui/src/elements/ReactSelect/types.ts
+
+      - name: Lint changed files
+        run: pnpm exec eslint packages/next/src/views/Dashboard/Default/ModularDashboard/DashboardStepNav.tsx packages/next/src/views/Dashboard/Default/ModularDashboard/DashboardStepNav.spec.ts packages/ui/src/elements/ReactSelect/types.ts
+
+      - name: Build next package
+        run: pnpm build:next
+        timeout-minutes: 12
+
+      - name: Review exact diff
+        run: |
+          git diff --check d58f8fba427dda48101ba274ef6f3889690fb244..HEAD
+          test "$(git diff --name-only d58f8fba427dda48101ba274ef6f3889690fb244..HEAD | wc -l)" -eq 3
+          git status --short
