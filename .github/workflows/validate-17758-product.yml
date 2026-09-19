@@ -1,0 +1,77 @@
+name: Validate exact issue 17758 product commit
+
+on:
+  push:
+    branches:
+      - validate/17758-product-20260919
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    if: github.repository == 'dijedontahiri/payload'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+        with:
+          ref: 84edff92a161c64c95808890a8e895a3a4ec97a8
+          fetch-depth: 2
+
+      - name: Verify exact candidate identity
+        run: |
+          test "$(git rev-parse HEAD)" = "84edff92a161c64c95808890a8e895a3a4ec97a8"
+          test "$(git rev-parse HEAD^)" = "544b5b782f94045970150a41550c1ccc1aac940f"
+          test "$(git hash-object packages/ui/src/fields/Relationship/optionsReducer.ts)" = "46bcf3f1b9c04a7e54df83c443dfde75c8a01b82"
+          test "$(git hash-object packages/ui/src/fields/Relationship/optionsReducer.spec.ts)" = "473ff74684dff6dc1330fa215cfa46cae38d7520"
+          git diff --check HEAD^
+          test "$(git diff --name-only HEAD^ HEAD | wc -l)" -eq 2
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.15.0
+
+      - name: Set up pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.9.0 --activate
+          node --version
+          pnpm --version
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        timeout-minutes: 15
+
+      - name: Verify baseline regressions fail for intended assertions
+        shell: bash
+        run: |
+          git checkout HEAD^ -- packages/ui/src/fields/Relationship/optionsReducer.ts
+          set +e
+          pnpm exec vitest run --project unit packages/ui/src/fields/Relationship/optionsReducer.spec.ts 2>&1 | tee /tmp/baseline.log
+          status=${PIPESTATUS[0]}
+          set -e
+          if [ "$status" -eq 0 ]; then
+            echo 'Baseline unexpectedly passed'
+            exit 1
+          fi
+          grep -q 'should add subsequent batches to the translated option group' /tmp/baseline.log
+          grep -q 'should remove options from the translated option group' /tmp/baseline.log
+          grep -q 'should update options in the translated option group' /tmp/baseline.log
+          grep -q 'AssertionError' /tmp/baseline.log
+          git checkout 84edff92a161c64c95808890a8e895a3a4ec97a8 -- packages/ui/src/fields/Relationship/optionsReducer.ts
+
+      - name: Run focused unit regression suite
+        run: pnpm exec vitest run --project unit packages/ui/src/fields/Relationship/optionsReducer.spec.ts
+
+      - name: Check formatting
+        run: pnpm exec prettier --check packages/ui/src/fields/Relationship/optionsReducer.ts packages/ui/src/fields/Relationship/optionsReducer.spec.ts
+
+      - name: Lint changed files
+        run: pnpm exec eslint packages/ui/src/fields/Relationship/optionsReducer.ts packages/ui/src/fields/Relationship/optionsReducer.spec.ts
+
+      - name: Build affected package
+        run: pnpm build:ui
+        timeout-minutes: 15
