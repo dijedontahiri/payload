@@ -158,6 +158,15 @@ jobs:
           pnpm exec eslint packages/payload/src/utilities/traverseFields.ts packages/payload/src/utilities/traverseFields.locale.spec.ts test/localization/traverseFields.int.spec.ts
           git diff --check
 
+      - name: Restore only the tracked test database
+        run: |
+          set -euo pipefail
+          # The isolated checkout was clean before these SQLite integration tests.
+          # Keep their tracked database output out of the source-only contribution.
+          git diff --numstat -- payload.db
+          git restore --source="$PREVIOUS" --worktree -- payload.db
+          git diff --quiet "$PREVIOUS" -- payload.db
+
       - name: Audit and commit exactly the tested candidate
         id: candidate
         run: |
