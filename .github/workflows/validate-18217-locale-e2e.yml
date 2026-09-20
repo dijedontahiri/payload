@@ -1,0 +1,212 @@
+name: Verify explicit locale traversal end to end
+
+on:
+  push:
+    branches:
+      - validate/18217-locale-e2e-20260920
+
+permissions:
+  contents: write
+
+concurrency:
+  group: payload-18217-locale-e2e
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    if: github.repository == 'dijedontahiri/payload'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      BASE: d58f8fba427dda48101ba274ef6f3889690fb244
+      PREVIOUS: e890e08da04ad66d3a92a1298512cd321446fb2d
+      PAYLOAD_DATABASE: sqlite
+      NODE_OPTIONS: --no-deprecation --no-experimental-strip-types --max-old-space-size=6144
+      DO_NOT_TRACK: '1'
+    defaults:
+      run:
+        shell: bash
+        working-directory: source
+    steps:
+      - name: Checkout fork-only harness
+        uses: actions/checkout@v4
+        with:
+          path: harness
+          persist-credentials: false
+
+      - name: Checkout exact product source
+        uses: actions/checkout@v4
+        with:
+          ref: e890e08da04ad66d3a92a1298512cd321446fb2d
+          fetch-depth: 2
+          path: source
+
+      - name: Verify base, instructions and isolated source
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$PREVIOUS"
+          test "$(git rev-parse HEAD^)" = "$BASE"
+          test -z "$(git status --porcelain)"
+          for file in AGENTS.md CLAUDE.md CONTRIBUTING.md SECURITY.md .tool-versions; do
+            test ! -f "$file" || cat "$file"
+          done
+          find packages/payload test/localization -name AGENTS.md -o -name CLAUDE.md
+          git ls-tree -r --name-only HEAD .github | grep -i 'pull_request_template' || true
+
+      - name: Set up pinned Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.13.0
+
+      - name: Install locked dependencies
+        timeout-minutes: 15
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.9.0 --activate
+          node --version
+          pnpm --version
+          pnpm install --frozen-lockfile
+
+      - name: Prepare and format focused candidate
+        run: |
+          python ../harness/.github/scripts/prepare-18217-locale.py
+          pnpm exec prettier --write packages/payload/src/utilities/traverseFields.ts packages/payload/src/utilities/traverseFields.locale.spec.ts test/localization/traverseFields.int.spec.ts
+          pnpm exec eslint --fix packages/payload/src/utilities/traverseFields.ts packages/payload/src/utilities/traverseFields.locale.spec.ts test/localization/traverseFields.int.spec.ts
+          cp packages/payload/src/utilities/traverseFields.ts "$RUNNER_TEMP/fixed-traverseFields.ts"
+
+      - name: Prove original resolved-data regression
+        run: |
+          set -euo pipefail
+          git show "$BASE:packages/payload/src/utilities/traverseFields.ts" > packages/payload/src/utilities/traverseFields.ts
+          set +e
+          pnpm exec vitest run --project unit packages/payload/src/utilities/traverseFields.locale.spec.ts --retry=0 --reporter=default --reporter=json --outputFile="$RUNNER_TEMP/baseline-unit.json" 2>&1 | tee "$RUNNER_TEMP/baseline-unit.log"
+          status=${PIPESTATUS[0]}
+          set -e
+          test "$status" -ne 0
+          python - <<'PY'
+          import json, os
+          report = json.load(open(os.environ['RUNNER_TEMP'] + '/baseline-unit.json'))
+          failed = [a for t in report['testResults'] for a in t['assertionResults'] if a['status'] == 'failed']
+          assert len(failed) == 9, [(a['fullName'], a.get('failureMessages')) for a in failed]
+          assert sum('should visit resolved values' in a['fullName'] for a in failed) == 3
+          assert report['numPassedTests'] == 9, report
+          print('Original source: nine intended assertion failures, nine controls passing.')
+          PY
+          cp "$RUNNER_TEMP/fixed-traverseFields.ts" packages/payload/src/utilities/traverseFields.ts
+
+      - name: Prove previous heuristic breaks raw locale-name collisions
+        run: |
+          set -euo pipefail
+          git show "$PREVIOUS:packages/payload/src/utilities/traverseFields.ts" > packages/payload/src/utilities/traverseFields.ts
+          set +e
+          pnpm exec vitest run --project unit packages/payload/src/utilities/traverseFields.locale.spec.ts -t 'should preserve raw locale maps' --retry=0 --reporter=default --reporter=json --outputFile="$RUNNER_TEMP/previous-unit.json" 2>&1 | tee "$RUNNER_TEMP/previous-unit.log"
+          status=${PIPESTATUS[0]}
+          set -e
+          test "$status" -ne 0
+          python - <<'PY'
+          import json, os
+          report = json.load(open(os.environ['RUNNER_TEMP'] + '/previous-unit.json'))
+          failed = [a for t in report['testResults'] for a in t['assertionResults'] if a['status'] == 'failed']
+          assert len(failed) == 6, failed
+          assert all('should preserve raw locale maps' in a['fullName'] for a in failed)
+          print('Previous heuristic: all six raw-shape collision controls fail as expected.')
+          PY
+          cp "$RUNNER_TEMP/fixed-traverseFields.ts" packages/payload/src/utilities/traverseFields.ts
+
+      - name: Run fixed traversal suites
+        run: pnpm exec vitest run --project unit packages/payload/src/utilities/traverseFields.spec.ts packages/payload/src/utilities/traverseFields.locale.spec.ts --retry=0
+
+      - name: Run complete core unit suite
+        run: pnpm exec vitest run --project unit packages/payload --retry=0 --maxWorkers=2
+
+      - name: Build translations and core declarations
+        run: |
+          pnpm --filter @payloadcms/translations build:types
+          pnpm --filter payload build:types
+
+      - name: Prove persisted-document regression against original source
+        timeout-minutes: 8
+        run: |
+          set -euo pipefail
+          git show "$BASE:packages/payload/src/utilities/traverseFields.ts" > packages/payload/src/utilities/traverseFields.ts
+          set +e
+          pnpm exec vitest run --project int test/localization/traverseFields.int.spec.ts --retry=0 --reporter=default --reporter=json --outputFile="$RUNNER_TEMP/baseline-int.json" 2>&1 | tee "$RUNNER_TEMP/baseline-int.log"
+          status=${PIPESTATUS[0]}
+          set -e
+          test "$status" -ne 0
+          python - <<'PY'
+          import json, os
+          report = json.load(open(os.environ['RUNNER_TEMP'] + '/baseline-int.json'))
+          failed = [a for t in report['testResults'] for a in t['assertionResults'] if a['status'] == 'failed']
+          assert len(failed) == 2, report
+          assert all('AssertionError' in '\n'.join(a.get('failureMessages', [])) for a in failed), failed
+          print('Both real SQLite create/update/read/traverse cases fail on original source assertions.')
+          PY
+          cp "$RUNNER_TEMP/fixed-traverseFields.ts" packages/payload/src/utilities/traverseFields.ts
+
+      - name: Run fixed persisted-document integration tests
+        timeout-minutes: 8
+        run: pnpm exec vitest run --project int test/localization/traverseFields.int.spec.ts --retry=0
+
+      - name: Run existing localization integration coverage
+        timeout-minutes: 12
+        run: pnpm exec vitest run --project int test/localization/int.spec.ts --retry=0
+
+      - name: Final formatting and lint
+        run: |
+          pnpm exec prettier --check packages/payload/src/utilities/traverseFields.ts packages/payload/src/utilities/traverseFields.locale.spec.ts test/localization/traverseFields.int.spec.ts
+          pnpm exec eslint packages/payload/src/utilities/traverseFields.ts packages/payload/src/utilities/traverseFields.locale.spec.ts test/localization/traverseFields.int.spec.ts
+          git diff --check
+
+      - name: Audit and commit exactly the tested candidate
+        id: candidate
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$PREVIOUS"
+          cmp packages/payload/src/utilities/traverseFields.ts "$RUNNER_TEMP/fixed-traverseFields.ts"
+          git status --short
+          python - <<'PY'
+          import subprocess
+          allowed = {'packages/payload/src/utilities/traverseFields.ts', 'packages/payload/src/utilities/traverseFields.spec.ts', 'packages/payload/src/utilities/traverseFields.locale.spec.ts', 'test/localization/traverseFields.int.spec.ts'}
+          tracked = subprocess.check_output(['git','diff','--name-only'], text=True).splitlines()
+          untracked = subprocess.check_output(['git','ls-files','--others','--exclude-standard'], text=True).splitlines()
+          assert set(tracked + untracked) == allowed, (tracked, untracked)
+          PY
+          git add packages/payload/src/utilities/traverseFields.ts packages/payload/src/utilities/traverseFields.spec.ts packages/payload/src/utilities/traverseFields.locale.spec.ts test/localization/traverseFields.int.spec.ts
+          git -c user.name='Dijedon' -c user.email='99071957+dijedontahiri@users.noreply.github.com' -c core.hooksPath=/dev/null commit -m 'fix: explicitly distinguish locale-resolved traversal data'
+          test -z "$(git status --porcelain)"
+          git diff "$BASE" --stat
+          test "$(git diff --name-only "$BASE" | wc -l)" -eq 3
+          git rev-parse HEAD | tee "$RUNNER_TEMP/product-sha.txt"
+          git rev-parse HEAD^{tree} | tee "$RUNNER_TEMP/product-tree.txt"
+          git diff "$BASE" > "$RUNNER_TEMP/18217-verified.patch"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Verify committed source once more
+        run: pnpm exec vitest run --project unit packages/payload/src/utilities/traverseFields.spec.ts packages/payload/src/utilities/traverseFields.locale.spec.ts --retry=0
+
+      - name: Fast-forward only the existing fork product branch
+        run: |
+          set -euo pipefail
+          branch='fix/18217-traverse-localized-resolved-data'
+          remote=$(git ls-remote origin "refs/heads/$branch" | cut -f1)
+          test "$remote" = "$PREVIOUS"
+          test -z "$(git status --porcelain)"
+          git push origin "HEAD:refs/heads/$branch"
+          test "$(git ls-remote origin "refs/heads/$branch" | cut -f1)" = "$(git rev-parse HEAD)"
+          printf 'Verified product commit: `%s`\n\nSQLite persisted-document before/after, core unit coverage, localization integration, type build, lint and format passed.\n' "$(git rev-parse HEAD)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Preserve validation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: payload-18217-locale-evidence
+          path: |
+            ${{ runner.temp }}/baseline-unit.*
+            ${{ runner.temp }}/previous-unit.*
+            ${{ runner.temp }}/baseline-int.*
+            ${{ runner.temp }}/product-sha.txt
+            ${{ runner.temp }}/product-tree.txt
+            ${{ runner.temp }}/18217-verified.patch
+          if-no-files-found: ignore
+          retention-days: 7
