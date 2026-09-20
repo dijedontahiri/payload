@@ -190,12 +190,12 @@ describe('traverseFields locale input', () => {
 })
 ''')
 
-shared = Path('packages/payload/src/exports/shared.ts').read_text()
-assert 'traverseFields' in shared, 'Check the public traverseFields export before integration tests'
+exports = Path('packages/payload/src/index.ts').read_text()
+assert "export { traverseFields } from './utilities/traverseFields.js'" in exports
 Path('test/localization/traverseFields.int.spec.ts').write_text('''import type { Payload } from 'payload'
 
 import path from 'path'
-import { traverseFields } from 'payload/shared'
+import { traverseFields } from 'payload'
 import { fileURLToPath } from 'url'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 
@@ -206,7 +206,6 @@ import { defaultLocale, spanishLocale } from './shared.js'
 
 const dirname = path.dirname(fileURLToPath(import.meta.url))
 let payload: Payload
-const records: { collection: typeof groupSlug | typeof tabSlug; id: number | string }[] = []
 
 const valuesFrom = (collection: typeof groupSlug | typeof tabSlug, ref: unknown, locale?: string) => {
   const values: Record<string, unknown[]> = {}
@@ -231,6 +230,8 @@ const valuesFrom = (collection: typeof groupSlug | typeof tabSlug, ref: unknown,
 }
 
 describe('traverseFields with persisted localized documents', () => {
+  const records: { collection: typeof groupSlug | typeof tabSlug; id: number | string }[] = []
+
   beforeAll(async () => {
     ;({ payload } = await initPayloadInt(dirname))
   })
