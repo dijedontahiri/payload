@@ -3,6 +3,7 @@ import type { PayloadRequest } from '../types/index.js'
 
 import { getDataLoader } from '../collections/dataloader.js'
 import { getLocalI18n } from '../translations/getLocalI18n.js'
+import { isolateObjectProperty } from './isolateObjectProperty.js'
 import { sanitizeFallbackLocale } from '../utilities/sanitizeFallbackLocale.js'
 
 function getRequestContext(
@@ -103,15 +104,23 @@ export const createLocalReq: CreateLocalReq = async (
     depth,
     fallbackLocale,
     locale: localeArg,
-    req = {} as PayloadRequest,
+    req: reqArg = {} as PayloadRequest,
     urlSuffix,
     user,
   },
   payload,
 ): Promise<PayloadRequest> => {
+  let req = reqArg
   const localization = payload.config?.localization
 
   if (localization) {
+    if (
+      (typeof localeArg !== 'undefined' || typeof fallbackLocale !== 'undefined') &&
+      (typeof req.locale !== 'undefined' || typeof req.fallbackLocale !== 'undefined')
+    ) {
+      req = isolateObjectProperty(req, ['fallbackLocale', 'locale'])
+    }
+
     const locale = localeArg === '*' ? 'all' : localeArg
     const defaultLocale = localization.defaultLocale
     const localeCandidate = locale || req?.locale || req?.query?.locale
