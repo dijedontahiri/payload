@@ -27,10 +27,11 @@ jobs:
           test "$(git rev-parse HEAD)" = "3c8b40c73be52badecf45710bc47dc341bc0bb8f"
           test "$(git rev-parse HEAD^^)" = "f5d261d0925e95dbd0039803829dad6e736edcb1"
           git diff --exit-code
-          changed=$(git diff --name-only f5d261d0925e95dbd0039803829dad6e736edcb1..HEAD)
-          printf '%s\n' "$changed"
-          test "$changed" = "packages/payload/src/utilities/createLocalReq.ts
-test/localization/local-api-request.int.spec.ts"
+          mapfile -t files < <(git diff --name-only f5d261d0925e95dbd0039803829dad6e736edcb1..HEAD)
+          printf '%s\n' "${files[@]}"
+          test "${#files[@]}" -eq 2
+          test "${files[0]}" = "packages/payload/src/utilities/createLocalReq.ts"
+          test "${files[1]}" = "test/localization/local-api-request.int.spec.ts"
 
       - name: Setup repository toolchain
         uses: ./.github/actions/setup
