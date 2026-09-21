@@ -1,0 +1,78 @@
+name: Validate 18246 final v4
+
+on:
+  push:
+    branches:
+      - validation/18246-final-v4
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    if: github.repository == 'dijedontahiri/payload'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout immutable product candidate
+        uses: actions/checkout@v6
+        with:
+          ref: 536a00d73fb5f87b6c0d879b4b313c863bf9e221
+          fetch-depth: 4
+          persist-credentials: false
+
+      - name: Verify source identity and scope
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = "536a00d73fb5f87b6c0d879b4b313c863bf9e221"
+          test "$(git rev-parse HEAD^^^)" = "f5d261d0925e95dbd0039803829dad6e736edcb1"
+          git diff --exit-code
+          mapfile -t files < <(git diff --name-only f5d261d0925e95dbd0039803829dad6e736edcb1..HEAD)
+          printf '%s\n' "${files[@]}"
+          test "${#files[@]}" -eq 2
+          test "${files[0]}" = "packages/payload/src/utilities/createLocalReq.ts"
+          test "${files[1]}" = "test/localization/local-api-request.int.spec.ts"
+
+      - name: Setup repository toolchain
+        uses: ./.github/actions/setup
+
+      - name: Check formatting
+        shell: bash
+        run: pnpm exec prettier --check packages/payload/src/utilities/createLocalReq.ts test/localization/local-api-request.int.spec.ts
+
+      - name: Lint affected files
+        shell: bash
+        run: pnpm exec eslint --flag v10_config_lookup_from_file packages/payload/src/utilities/createLocalReq.ts test/localization/local-api-request.int.spec.ts
+
+      - name: Run createLocalReq unit tests
+        shell: bash
+        run: pnpm exec vitest --run --project unit packages/payload/src/utilities/createLocalReq.spec.ts
+
+      - name: Run focused localization regression on SQLite
+        shell: bash
+        env:
+          PAYLOAD_DATABASE: sqlite
+        run: pnpm exec vitest --run --project int test/localization/local-api-request.int.spec.ts
+
+      - name: Start PostgreSQL
+        shell: bash
+        run: docker compose -f test/docker-compose.yml --profile postgres up -d --wait
+
+      - name: Run focused localization regression on PostgreSQL
+        shell: bash
+        env:
+          PAYLOAD_DATABASE: postgres
+          POSTGRES_URL: postgresql://payload:payload@localhost:5433/payload
+        run: pnpm exec vitest --run --project int test/localization/local-api-request.int.spec.ts
+
+      - name: Build payload package
+        shell: bash
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
+        run: pnpm run build:payload
+
+      - name: Confirm exact tested product tree stayed clean
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = "536a00d73fb5f87b6c0d879b4b313c863bf9e221"
+          git diff --exit-code
