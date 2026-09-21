@@ -1,0 +1,61 @@
+name: Validate 18246 baseline v2
+
+on:
+  push:
+    branches:
+      - validation/18246-baseline-v2
+
+permissions:
+  contents: read
+
+jobs:
+  baseline:
+    if: github.repository == 'dijedontahiri/payload'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout immutable reproduction candidate
+        uses: actions/checkout@v6
+        with:
+          ref: 1def9099d11fc069255c5ed67bef2add938935ce
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Verify source identity
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = "1def9099d11fc069255c5ed67bef2add938935ce"
+          test "$(git rev-parse HEAD^)" = "f5d261d0925e95dbd0039803829dad6e736edcb1"
+          git diff --exit-code
+
+      - name: Setup repository toolchain
+        uses: ./.github/actions/setup
+
+      - name: Start PostgreSQL
+        shell: bash
+        run: docker compose -f test/docker-compose.yml --profile postgres up -d --wait
+
+      - name: Prove the nested locale regression fails on unchanged production code
+        shell: bash
+        env:
+          PAYLOAD_DATABASE: postgres
+          POSTGRES_URL: postgresql://payload:payload@localhost:5433/payload
+        run: |
+          set +e
+          pnpm exec vitest --run --project int test/localization/local-api-request.int.spec.ts 2>&1 | tee "$RUNNER_TEMP/18246-baseline-v2.log"
+          test_status=${PIPESTATUS[0]}
+          set -e
+
+          if [ "$test_status" -eq 0 ]; then
+            echo "Expected the regression assertion to fail on the baseline source, but it passed."
+            exit 1
+          fi
+
+          grep -F "should preserve parent request locale state when a nested Local API call overrides locale" "$RUNNER_TEMP/18246-baseline-v2.log"
+          grep -F "expected 'en' to be 'es'" "$RUNNER_TEMP/18246-baseline-v2.log"
+
+      - name: Confirm reproduction tree stayed clean
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = "1def9099d11fc069255c5ed67bef2add938935ce"
+          git diff --exit-code
