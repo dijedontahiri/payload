@@ -1,13 +1,28 @@
-import { createLocalReq } from 'payload'
-import { expect } from 'vitest'
+import type { Payload } from 'payload'
 
-import { test } from '../__helpers/int/vitest.js'
+import path from 'path'
+import { createLocalReq } from 'payload'
+import { fileURLToPath } from 'url'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+
+import { initPayloadInt } from '../__helpers/shared/initPayloadInt.js'
 import { defaultLocale, localizedPostsSlug, spanishLocale } from './shared.js'
 
-test.suite({ config: './config.ts' })('Localized Local API requests', () => {
-  test('should preserve parent request locale state when a nested Local API call overrides locale', async ({
-    payload,
-  }) => {
+let payload: Payload
+
+const filename = fileURLToPath(import.meta.url)
+const dirname = path.dirname(filename)
+
+describe('Localized Local API requests', () => {
+  beforeAll(async () => {
+    ;({ payload } = await initPayloadInt(dirname))
+  })
+
+  afterAll(async () => {
+    await payload.destroy()
+  })
+
+  it('should preserve parent request locale state when a nested Local API call overrides locale', async () => {
     const req = await createLocalReq({ locale: spanishLocale }, payload)
 
     expect(req.locale).toBe(spanishLocale)
