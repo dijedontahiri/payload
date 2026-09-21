@@ -1,0 +1,156 @@
+name: Validate issue 13933 custom block component r4
+
+on:
+  push:
+    branches:
+      - validate/13933-custom-block-component-20260921-r4
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    if: github.repository == 'dijedontahiri/payload'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v5
+        with:
+          ref: afb32ecfd85ddf9a88cd8cfa1f4edd48d9be5445
+          fetch-depth: 12
+
+      - name: Verify exact candidate
+        run: |
+          test "$(git rev-parse HEAD)" = "afb32ecfd85ddf9a88cd8cfa1f4edd48d9be5445"
+          git merge-base --is-ancestor d58f8fba427dda48101ba274ef6f3889690fb244 HEAD
+          git diff --check d58f8fba427dda48101ba274ef6f3889690fb244..HEAD
+          test "$(git diff --name-only d58f8fba427dda48101ba274ef6f3889690fb244..HEAD | wc -l)" -eq 4
+          cp packages/ui/src/forms/fieldSchemasToFormState/renderField.spec.ts "$RUNNER_TEMP/renderField.spec.ts"
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .tool-versions
+
+      - name: Set up pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.9.0 --activate
+          node --version
+          pnpm --version
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        timeout-minutes: 15
+
+      - name: Prove focused regression fails on baseline
+        run: |
+          git checkout --detach d58f8fba427dda48101ba274ef6f3889690fb244
+          cp "$RUNNER_TEMP/renderField.spec.ts" packages/ui/src/forms/fieldSchemasToFormState/renderField.spec.ts
+          set +e
+          pnpm exec vitest run --project unit packages/ui/src/forms/fieldSchemasToFormState/renderField.spec.ts > "$RUNNER_TEMP/baseline.log" 2>&1
+          status=$?
+          set -e
+          cat "$RUNNER_TEMP/baseline.log"
+          test "$status" -ne 0
+          grep -q "expected undefined to be 'Mock'" "$RUNNER_TEMP/baseline.log"
+
+      - name: Restore exact candidate
+        run: |
+          git reset --hard
+          git clean -fd
+          git checkout --detach afb32ecfd85ddf9a88cd8cfa1f4edd48d9be5445
+          test "$(git rev-parse HEAD)" = "afb32ecfd85ddf9a88cd8cfa1f4edd48d9be5445"
+
+      - name: Run focused unit regression
+        run: pnpm exec vitest run --project unit packages/ui/src/forms/fieldSchemasToFormState/renderField.spec.ts
+
+      - name: Build core runtime for E2E
+        run: pnpm run build:core
+        timeout-minutes: 20
+
+      - name: Install Chromium
+        run: pnpm exec playwright install --with-deps chromium --no-shell
+        timeout-minutes: 8
+
+      - name: Prepare browser-only custom block fixture
+        run: |
+          mkdir -p test/fields/collections/Blocks/components
+          cat > test/fields/collections/Blocks/components/CustomBlock.tsx <<'EOF'
+          const CustomBlock = () => (
+            <div data-testid="custom-block-component">Custom Block Component</div>
+          )
+
+          export default CustomBlock
+          EOF
+
+          python3 <<'PY'
+          from pathlib import Path
+
+          index_path = Path('test/fields/collections/Blocks/index.ts')
+          index_text = index_path.read_text()
+          index_marker = "    getBlocksField(),\n"
+          assert index_text.count(index_marker) >= 1
+          index_fixture = """    getBlocksField(),
+              {
+                name: 'customBlockComponent',
+                type: 'blocks',
+                blocks: [
+                  {
+                    slug: 'customBlock',
+                    labels: {
+                      singular: 'Custom Block',
+                      plural: 'Custom Blocks',
+                    },
+                    admin: {
+                      components: {
+                        Block: './collections/Blocks/components/CustomBlock.tsx',
+                      },
+                    },
+                    fields: [],
+                  },
+                ],
+              },
+          """
+          index_path.write_text(index_text.replace(index_marker, index_fixture, 1))
+
+          e2e_path = Path('test/fields/collections/Blocks/e2e.spec.ts')
+          e2e_text = e2e_path.read_text()
+          e2e_marker = "  test('should open blocks drawer and select first block', async () => {"
+          assert e2e_text.count(e2e_marker) == 1
+          e2e_fixture = """  test('should render custom block component', async () => {
+              await page.goto(url.create)
+
+              const blocksDrawer = await openBlocksDrawer({
+                page,
+                fieldName: 'customBlockComponent',
+              })
+
+              await blocksDrawer.getByRole('button', { name: 'Custom Block', exact: true }).click()
+
+              await expect(page.getByTestId('custom-block-component')).toHaveText('Custom Block Component')
+              await expect(page.locator('#field-customBlockComponent .collapsible')).toHaveCount(0)
+            })
+
+          """ + e2e_marker
+          e2e_path.write_text(e2e_text.replace(e2e_marker, e2e_fixture, 1))
+          PY
+
+      - name: Run focused browser regression through normal E2E initialization
+        run: pnpm test:e2e fields__collections__Blocks --grep "should render custom block component" --workers=1
+        timeout-minutes: 12
+
+      - name: Restore exact candidate after browser fixture
+        if: always()
+        run: |
+          git reset --hard afb32ecfd85ddf9a88cd8cfa1f4edd48d9be5445
+          git clean -fd
+          test "$(git rev-parse HEAD)" = "afb32ecfd85ddf9a88cd8cfa1f4edd48d9be5445"
+
+      - name: Review exact product diff
+        if: success()
+        run: |
+          git diff --check d58f8fba427dda48101ba274ef6f3889690fb244..HEAD
+          test "$(git diff --name-only d58f8fba427dda48101ba274ef6f3889690fb244..HEAD | wc -l)" -eq 4
+          test -z "$(git status --porcelain)"
