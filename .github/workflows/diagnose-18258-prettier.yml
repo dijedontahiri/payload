@@ -1,0 +1,31 @@
+name: Diagnose issue 18258 formatting
+
+on:
+  push:
+    branches:
+      - diagnose/18258-prettier
+
+permissions:
+  contents: read
+
+jobs:
+  format:
+    if: github.repository == 'dijedontahiri/payload'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          repository: dijedontahiri/payload
+          ref: c939a0964b52ae8adfe220ac4d9b6428ac4a620a
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24.13.0
+      - name: Format and show exact diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          corepack enable
+          corepack prepare pnpm@11.9.0 --activate
+          pnpm dlx prettier@3.5.3 --write packages/db-mongodb/src/utilities/buildJoinAggregation.ts test/joins/multiSort.int.spec.ts
+          git diff --no-ext-diff -- packages/db-mongodb/src/utilities/buildJoinAggregation.ts test/joins/multiSort.int.spec.ts
