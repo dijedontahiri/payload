@@ -1,0 +1,111 @@
+name: Validate issue 16644 SQLite migration foreign keys r4
+
+on:
+  push:
+    branches:
+      - validate/16644-sqlite-fk-20260922-r4
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    if: github.repository == 'dijedontahiri/payload'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout exact product candidate
+        uses: actions/checkout@v4
+        with:
+          repository: dijedontahiri/payload
+          ref: 5a49e2b72b981b0442124b1cc850de3c580adf01
+          fetch-depth: 0
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.13.0
+
+      - name: Set up pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.9.0 --activate
+          node --version
+          pnpm --version
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        timeout-minutes: 15
+
+      - name: Verify baseline FK-on table rebuild fails at the reported constraint
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import { createClient } from '@libsql/client'
+          import { mkdtemp, rm } from 'node:fs/promises'
+          import { tmpdir } from 'node:os'
+          import { join } from 'node:path'
+
+          const directory = await mkdtemp(join(tmpdir(), 'payload-16644-baseline-'))
+          const client = createClient({ url: `file:${join(directory, 'baseline.db')}` })
+          let transaction
+          let failure
+
+          try {
+            await client.execute('PRAGMA foreign_keys = ON')
+            await client.executeMultiple(`
+              CREATE TABLE parents (id INTEGER PRIMARY KEY);
+              CREATE TABLE children (
+                id INTEGER PRIMARY KEY,
+                parent_id INTEGER NOT NULL REFERENCES parents(id) ON DELETE SET NULL
+              );
+              INSERT INTO parents (id) VALUES (1);
+              INSERT INTO children (id, parent_id) VALUES (1, 1);
+            `)
+
+            transaction = await client.transaction('write')
+            try {
+              await transaction.execute('DROP TABLE parents')
+              await transaction.commit()
+            } catch (error) {
+              failure = error
+              await transaction.rollback()
+            }
+
+            if (!failure) {
+              throw new Error('Baseline unexpectedly allowed the FK-on DROP TABLE transaction')
+            }
+
+            const message = String(failure)
+            if (!message.includes('NOT NULL') && !message.includes('SQLITE_CONSTRAINT')) {
+              throw new Error(`Baseline failed for an unexpected reason: ${message}`)
+            }
+
+            console.log(`Observed intended baseline failure: ${message}`)
+          } finally {
+            transaction?.close()
+            client.close()
+            await rm(directory, { force: true, recursive: true })
+          }
+          NODE
+
+      - name: Run focused SQLite regression tests
+        run: pnpm exec vitest run --project unit packages/db-sqlite/src/migrate.spec.ts
+
+      - name: Check formatting
+        run: pnpm exec prettier --check packages/db-sqlite/src/index.ts packages/db-sqlite/src/migrate.ts packages/db-sqlite/src/migrate.spec.ts
+
+      - name: Lint changed source files
+        run: pnpm exec eslint packages/db-sqlite/src/index.ts packages/db-sqlite/src/migrate.ts
+
+      - name: Build SQLite adapter and workspace dependencies
+        run: pnpm turbo build --filter=@payloadcms/db-sqlite
+        timeout-minutes: 15
+
+      - name: Review exact product diff
+        run: |
+          git diff --check 972a4fb0ed7556bba9b49ea02e0d6ebe2127993b..HEAD
+          git diff --name-only 972a4fb0ed7556bba9b49ea02e0d6ebe2127993b..HEAD
+          test "$(git diff --name-only 972a4fb0ed7556bba9b49ea02e0d6ebe2127993b..HEAD | wc -l)" -eq 3
+          git status --short
+          test -z "$(git status --porcelain)"
