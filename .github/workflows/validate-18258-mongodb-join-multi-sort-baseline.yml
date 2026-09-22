@@ -15,6 +15,7 @@ jobs:
     timeout-minutes: 30
     env:
       PAYLOAD_DATABASE: mongodb
+      MONGODB_URL: mongodb://payload:payload@localhost:27018/payload?authSource=admin&directConnection=true&replicaSet=rs0
       NODE_OPTIONS: --no-deprecation --no-experimental-strip-types --max-old-space-size=6144
       DO_NOT_TRACK: '1'
     steps:
@@ -41,6 +42,16 @@ jobs:
         run: pnpm install --frozen-lockfile
         timeout-minutes: 15
 
+      - name: Start MongoDB replica set
+        run: |
+          set -euo pipefail
+          for i in 1 2 3; do
+            docker compose -f test/docker-compose.yml --profile mongodb pull && break
+            echo "MongoDB pull attempt $i/3 failed; retrying in 10s"
+            sleep 10
+          done
+          docker compose -f test/docker-compose.yml --profile mongodb up -d --wait
+
       - name: Prove regression fails on unchanged production code
         run: |
           set -euo pipefail
@@ -56,6 +67,7 @@ jobs:
           assert len(failed) == 1, report
           assert 'should apply every key in a multi-key join sort' in failed[0]['fullName'], failed[0]
           assert 'AssertionError' in '\n'.join(failed[0].get('failureMessages', [])), failed[0]
+          assert report['numPassedTests'] == 0, report
           print('Baseline failed only at intended multi-key join ordering assertion.')
           PY
 
