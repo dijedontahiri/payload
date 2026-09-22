@@ -4,7 +4,7 @@ import path from 'path'
 import { fileURLToPath } from 'url'
 import { afterAll, beforeAll, describe, expect } from 'vitest'
 
-import { it as itDatabase } from '../__helpers/int/vitest.js'
+import { it } from '../__helpers/int/vitest.js'
 import { initPayloadInt } from '../__helpers/shared/initPayloadInt.js'
 import { categoriesSlug, postsSlug } from './shared.js'
 
@@ -22,8 +22,8 @@ describe('MongoDB join multi-key sorting', () => {
     const category = await payload.create({
       collection: categoriesSlug,
       data: {
-        name: 'multi-sort category',
         group: {},
+        name: 'multi-sort category',
       },
     })
 
@@ -33,8 +33,8 @@ describe('MongoDB join multi-key sorting', () => {
       const post = await payload.create({
         collection: postsSlug,
         data: {
-          title,
           category: categoryID,
+          title,
         },
       })
 
@@ -44,17 +44,17 @@ describe('MongoDB join multi-key sorting', () => {
 
   afterAll(async () => {
     for (const id of postIDs) {
-      await payload.delete({ collection: postsSlug, id })
+      await payload.delete({ id, collection: postsSlug })
     }
 
-    await payload.delete({ collection: categoriesSlug, id: categoryID })
+    await payload.delete({ id: categoryID, collection: categoriesSlug })
     await payload.destroy()
   })
 
-  itDatabase('should apply every key in a multi-key join sort', { db: 'mongo' }, async () => {
+  it('should apply every key in a multi-key join sort', { db: 'mongo' }, async () => {
     const category = await payload.findByID({
-      collection: categoriesSlug,
       id: categoryID,
+      collection: categoriesSlug,
       joins: {
         relatedPosts: {
           limit: 10,
