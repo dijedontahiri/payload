@@ -1,4 +1,5 @@
 import type { Client } from '@libsql/client'
+
 import { migrate as drizzleMigrate } from '@payloadcms/drizzle'
 
 import type { SQLiteAdapter } from './types.js'
