@@ -24,6 +24,9 @@ export const withForeignKeysDisabled = async <T>(
   }
 }
 
-export const migrate: SQLiteAdapter['migrate'] = async function migrate(args) {
+export const migrate: SQLiteAdapter['migrate'] = async function migrate(
+  this: SQLiteAdapter,
+  args,
+) {
   return withForeignKeysDisabled(this.client, () => drizzleMigrate.call(this, args))
 }
