@@ -1,0 +1,56 @@
+name: Validate issue 18251 relationship id duplication baseline
+
+on:
+  push:
+    branches:
+      - validate/18251-dedupe-relationship-ids-baseline
+
+permissions:
+  contents: read
+
+jobs:
+  baseline:
+    if: github.repository == 'dijedontahiri/payload'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout exact reproduction candidate
+        uses: actions/checkout@v4
+        with:
+          repository: dijedontahiri/payload
+          ref: b12234b345bdf78023c2f5276cc6509644f5860a
+          fetch-depth: 0
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.13.0
+
+      - name: Set up pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.9.0 --activate
+          node --version
+          pnpm --version
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        timeout-minutes: 15
+
+      - name: Prove the focused regression fails at its assertion
+        shell: bash
+        run: |
+          set +e
+          pnpm exec vitest run --project unit packages/drizzle/src/queries/sanitizeQueryValue.spec.ts > "$RUNNER_TEMP/baseline.log" 2>&1
+          status=$?
+          set -e
+          cat "$RUNNER_TEMP/baseline.log"
+          test "$status" -ne 0
+          grep -F "deduplicates relationship ids after coercing them to the collection id type" "$RUNNER_TEMP/baseline.log"
+          grep -F "AssertionError" "$RUNNER_TEMP/baseline.log"
+
+      - name: Verify reproduction branch scope
+        run: |
+          git diff --check 972a4fb0ed7556bba9b49ea02e0d6ebe2127993b..HEAD
+          test "$(git diff --name-only 972a4fb0ed7556bba9b49ea02e0d6ebe2127993b..HEAD | wc -l)" -eq 1
+          test "$(git diff --name-only 972a4fb0ed7556bba9b49ea02e0d6ebe2127993b..HEAD)" = "packages/drizzle/src/queries/sanitizeQueryValue.spec.ts"
