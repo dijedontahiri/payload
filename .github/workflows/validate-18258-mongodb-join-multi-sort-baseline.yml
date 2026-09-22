@@ -1,0 +1,67 @@
+name: Validate issue 18258 MongoDB join multi-sort baseline
+
+on:
+  push:
+    branches:
+      - validate/18258-mongodb-join-multi-sort-baseline
+
+permissions:
+  contents: read
+
+jobs:
+  baseline:
+    if: github.repository == 'dijedontahiri/payload'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      PAYLOAD_DATABASE: mongodb
+      NODE_OPTIONS: --no-deprecation --no-experimental-strip-types --max-old-space-size=6144
+      DO_NOT_TRACK: '1'
+    steps:
+      - name: Checkout exact reproduction source
+        uses: actions/checkout@v4
+        with:
+          repository: dijedontahiri/payload
+          ref: 930c18c58a45d9574474549ac2dadb80a02d31c4
+          fetch-depth: 0
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.13.0
+
+      - name: Set up pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.9.0 --activate
+          node --version
+          pnpm --version
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        timeout-minutes: 15
+
+      - name: Prove regression fails on unchanged production code
+        run: |
+          set -euo pipefail
+          set +e
+          pnpm exec vitest run --project int test/joins/multiSort.int.spec.ts --retry=0 --reporter=default --reporter=json --outputFile="$RUNNER_TEMP/baseline.json" 2>&1 | tee "$RUNNER_TEMP/baseline.log"
+          status=${PIPESTATUS[0]}
+          set -e
+          test "$status" -ne 0
+          python - <<'PY'
+          import json, os
+          report = json.load(open(os.environ['RUNNER_TEMP'] + '/baseline.json'))
+          failed = [a for t in report['testResults'] for a in t['assertionResults'] if a['status'] == 'failed']
+          assert len(failed) == 1, report
+          assert 'should apply every key in a multi-key join sort' in failed[0]['fullName'], failed[0]
+          assert 'AssertionError' in '\n'.join(failed[0].get('failureMessages', [])), failed[0]
+          print('Baseline failed only at intended multi-key join ordering assertion.')
+          PY
+
+      - name: Verify immutable source and focused diff
+        run: |
+          test "$(git rev-parse HEAD)" = "930c18c58a45d9574474549ac2dadb80a02d31c4"
+          git diff --check a81514022705fd327342fc25fc4f0731b418f12a..HEAD
+          test "$(git diff --name-only a81514022705fd327342fc25fc4f0731b418f12a..HEAD | wc -l)" -eq 1
+          git diff --name-only a81514022705fd327342fc25fc4f0731b418f12a..HEAD | grep -Fx "test/joins/multiSort.int.spec.ts"
