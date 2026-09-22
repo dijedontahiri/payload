@@ -34,6 +34,14 @@ type BuildJoinAggregationArgs = {
   versions?: boolean
 }
 
+const toMongoSort = (sort: Record<string, string>): Record<string, 1 | -1> =>
+  Object.fromEntries(
+    Object.entries(sort).map(([property, direction]) => [
+      property,
+      direction === 'asc' ? 1 : -1,
+    ]),
+  ) as Record<string, 1 | -1>
+
 export const buildJoinAggregation = async ({
   adapter,
   collection,
@@ -112,10 +120,12 @@ export const buildJoinAggregation = async ({
       where: whereJoin,
     })
 
-    const sortProperty = Object.keys(sort)[0]! // assert because buildSortParam always returns at least 1 key.
-    const sortDirection = sort[sortProperty] === 'asc' ? 1 : -1
-
-    const projectSort = sortProperty !== '_id' && sortProperty !== 'relationTo'
+    const sortDirections = toMongoSort(sort)
+    const sortProjection = Object.fromEntries(
+      Object.keys(sortDirections)
+        .filter((property) => property !== '_id' && property !== 'relationTo')
+        .map((property) => [property, 1]),
+    ) as Record<string, 1>
 
     const aliases: string[] = []
 
@@ -159,9 +169,7 @@ export const buildJoinAggregation = async ({
           pipeline: [
             ...basePipeline,
             {
-              $sort: {
-                [sortProperty]: sortDirection,
-              },
+              $sort: sortDirections,
             },
             {
               // Unfortunately, we can't use $skip here because we can lose data, instead we do $slice then
@@ -170,9 +178,7 @@ export const buildJoinAggregation = async ({
             {
               $project: {
                 value: '$_id',
-                ...(projectSort && {
-                  [sortProperty]: 1,
-                }),
+                ...sortProjection,
                 relationTo: 1,
               },
             },
@@ -229,9 +235,7 @@ export const buildJoinAggregation = async ({
         [`${as}.docs`]: {
           $sortArray: {
             input: `$${as}.docs`,
-            sortBy: {
-              [sortProperty]: sortDirection,
-            },
+            sortBy: sortDirections,
           },
         },
       },
@@ -319,8 +323,7 @@ export const buildJoinAggregation = async ({
         sort: useDrafts ? getQueryDraftsSort({ collectionConfig, sort: sortJoin }) : sortJoin,
         timestamps: true,
       })
-      const sortProperty = Object.keys(sort)[0]!
-      const sortDirection = sort[sortProperty] === 'asc' ? 1 : -1
+      const sortDirections = toMongoSort(sort)
 
       const $match = await JoinModel.buildQuery({
         locale,
@@ -337,7 +340,7 @@ export const buildJoinAggregation = async ({
       const pipeline: Exclude<PipelineStage, PipelineStage.Merge | PipelineStage.Out>[] = [
         { $match },
         {
-          $sort: { [sortProperty]: sortDirection },
+          $sort: sortDirections,
         },
       ]
 
