@@ -1,73 +1,47 @@
-import type { Payload } from 'payload'
+import { expect } from 'vitest'
 
-import path from 'path'
-import { fileURLToPath } from 'url'
-import { afterAll, beforeAll, describe, expect } from 'vitest'
-
-import { it } from '../__helpers/int/vitest.js'
-import { initPayloadInt } from '../__helpers/shared/initPayloadInt.js'
+import { test } from '../__helpers/int/vitest.js'
 import { categoriesSlug, postsSlug } from './shared.js'
 
-const filename = fileURLToPath(import.meta.url)
-const dirname = path.dirname(filename)
-
-let payload: Payload
-let categoryID: number | string
-const postIDs: Array<number | string> = []
-
-describe('MongoDB join multi-key sorting', () => {
-  beforeAll(async () => {
-    ;({ payload } = await initPayloadInt(dirname))
-
-    const category = await payload.create({
-      collection: categoriesSlug,
-      data: {
-        group: {},
-        name: 'multi-sort category',
-      },
-    })
-
-    categoryID = category.id
-
-    for (const title of ['delta', 'alpha', 'charlie', 'bravo']) {
-      const post = await payload.create({
-        collection: postsSlug,
+test.suite({ config: './config.ts' })('MongoDB join multi-key sorting', () => {
+  test.options({ db: 'mongo' })(
+    'should apply every key in a multi-key join sort',
+    async ({ payload }) => {
+      const category = await payload.create({
+        collection: categoriesSlug,
         data: {
-          category: categoryID,
-          title,
+          name: 'multi-sort category',
+          group: {},
         },
       })
 
-      postIDs.push(post.id)
-    }
-  })
+      for (const title of ['delta', 'alpha', 'charlie', 'bravo']) {
+        await payload.create({
+          collection: postsSlug,
+          data: {
+            category: category.id,
+            title,
+          },
+        })
+      }
 
-  afterAll(async () => {
-    for (const id of postIDs) {
-      await payload.delete({ id, collection: postsSlug })
-    }
-
-    await payload.delete({ id: categoryID, collection: categoriesSlug })
-    await payload.destroy()
-  })
-
-  it('should apply every key in a multi-key join sort', { db: 'mongo' }, async () => {
-    const category = await payload.findByID({
-      id: categoryID,
-      collection: categoriesSlug,
-      joins: {
-        relatedPosts: {
-          limit: 10,
-          sort: ['category', 'title'] as unknown as string,
+      const result = await payload.findByID({
+        id: category.id,
+        collection: categoriesSlug,
+        joins: {
+          relatedPosts: {
+            limit: 10,
+            sort: ['category', 'title'] as unknown as string,
+          },
         },
-      },
-    })
+      })
 
-    expect(category.relatedPosts.docs.map((post) => post.title)).toStrictEqual([
-      'alpha',
-      'bravo',
-      'charlie',
-      'delta',
-    ])
-  })
+      expect(result.relatedPosts.docs.map((post) => post.title)).toStrictEqual([
+        'alpha',
+        'bravo',
+        'charlie',
+        'delta',
+      ])
+    },
+  )
 })
