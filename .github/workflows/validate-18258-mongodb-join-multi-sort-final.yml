@@ -1,0 +1,97 @@
+name: Validate issue 18258 MongoDB join multi-sort candidate
+
+on:
+  push:
+    branches:
+      - validate/18258-mongodb-join-multi-sort-final
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    if: github.repository == 'dijedontahiri/payload'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    env:
+      BASE_SHA: a81514022705fd327342fc25fc4f0731b418f12a
+      CANDIDATE_SHA: c939a0964b52ae8adfe220ac4d9b6428ac4a620a
+      PAYLOAD_DATABASE: mongodb
+      MONGODB_URL: mongodb://payload:payload@localhost:27018/payload?authSource=admin&directConnection=true&replicaSet=rs0
+      NODE_OPTIONS: --no-deprecation --no-experimental-strip-types --max-old-space-size=6144
+      DO_NOT_TRACK: '1'
+      NEXT_TELEMETRY_DISABLED: '1'
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v5
+        with:
+          repository: dijedontahiri/payload
+          ref: c939a0964b52ae8adfe220ac4d9b6428ac4a620a
+          fetch-depth: 0
+
+      - name: Verify candidate identity and scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+          test "$(git merge-base "$BASE_SHA" HEAD)" = "$BASE_SHA"
+          test "$(git diff --name-only "$BASE_SHA"..HEAD | sort | tr '\n' ' ')" = "packages/db-mongodb/src/utilities/buildJoinAggregation.ts test/joins/multiSort.int.spec.ts "
+          git diff --check "$BASE_SHA"..HEAD
+          test "$(grep -c '\$sort: sortDirections' packages/db-mongodb/src/utilities/buildJoinAggregation.ts)" -eq 2
+          test "$(grep -c 'sortBy: sortDirections' packages/db-mongodb/src/utilities/buildJoinAggregation.ts)" -eq 1
+          test "$(git hash-object packages/db-mongodb/src/utilities/buildJoinAggregation.ts)" = "42a4d67752f6f62bf2f5810a52db122bd63c6735"
+          test "$(git hash-object test/joins/multiSort.int.spec.ts)" = "5e02cb80968c99a198c00de35a83b2b28892e447"
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24.13.0
+
+      - name: Set up pnpm
+        shell: bash
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.9.0 --activate
+          test "$(node --version)" = "v24.13.0"
+          test "$(pnpm --version)" = "11.9.0"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        timeout-minutes: 15
+
+      - name: Start MongoDB replica set
+        shell: bash
+        run: |
+          set -euo pipefail
+          for i in 1 2 3; do
+            docker compose -f test/docker-compose.yml --profile mongodb pull && break
+            echo "MongoDB pull attempt $i/3 failed; retrying in 10s"
+            sleep 10
+          done
+          docker compose -f test/docker-compose.yml --profile mongodb up -d --wait
+
+      - name: Run focused MongoDB regression
+        run: pnpm exec vitest run --project int test/joins/multiSort.int.spec.ts --retry=0
+
+      - name: Run existing join integration coverage
+        run: pnpm exec vitest run --project int test/joins/int.spec.ts --retry=0
+        timeout-minutes: 10
+
+      - name: Check formatting
+        run: pnpm exec prettier --check packages/db-mongodb/src/utilities/buildJoinAggregation.ts test/joins/multiSort.int.spec.ts
+
+      - name: Lint changed files
+        run: pnpm exec eslint packages/db-mongodb/src/utilities/buildJoinAggregation.ts test/joins/multiSort.int.spec.ts
+
+      - name: Build MongoDB adapter
+        run: pnpm --filter @payloadcms/db-mongodb build
+        timeout-minutes: 10
+
+      - name: Verify tested source stayed exact
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+          test "$(git hash-object packages/db-mongodb/src/utilities/buildJoinAggregation.ts)" = "42a4d67752f6f62bf2f5810a52db122bd63c6735"
+          test "$(git hash-object test/joins/multiSort.int.spec.ts)" = "5e02cb80968c99a198c00de35a83b2b28892e447"
+          git diff --check "$BASE_SHA"..HEAD
