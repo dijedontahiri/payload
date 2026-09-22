@@ -34,10 +34,10 @@ type BuildJoinAggregationArgs = {
   versions?: boolean
 }
 
-const toMongoSort = (sort: Record<string, string>): Record<string, 1 | -1> =>
+const toMongoSort = (sort: Record<string, string>): Record<string, -1 | 1> =>
   Object.fromEntries(
     Object.entries(sort).map(([property, direction]) => [property, direction === 'asc' ? 1 : -1]),
-  ) as Record<string, 1 | -1>
+  ) as Record<string, -1 | 1>
 
 export const buildJoinAggregation = async ({
   adapter,
