@@ -51,27 +51,23 @@ describe('MongoDB join multi-key sorting', () => {
     await payload.destroy()
   })
 
-  itDatabase(
-    'should apply every key in a multi-key join sort',
-    { db: 'mongo' },
-    async () => {
-      const category = await payload.findByID({
-        collection: categoriesSlug,
-        id: categoryID,
-        joins: {
-          relatedPosts: {
-            limit: 10,
-            sort: ['category', 'title'] as unknown as string,
-          },
+  itDatabase('should apply every key in a multi-key join sort', { db: 'mongo' }, async () => {
+    const category = await payload.findByID({
+      collection: categoriesSlug,
+      id: categoryID,
+      joins: {
+        relatedPosts: {
+          limit: 10,
+          sort: ['category', 'title'] as unknown as string,
         },
-      })
+      },
+    })
 
-      expect(category.relatedPosts.docs.map((post) => post.title)).toStrictEqual([
-        'alpha',
-        'bravo',
-        'charlie',
-        'delta',
-      ])
-    },
-  )
+    expect(category.relatedPosts.docs.map((post) => post.title)).toStrictEqual([
+      'alpha',
+      'bravo',
+      'charlie',
+      'delta',
+    ])
+  })
 })
