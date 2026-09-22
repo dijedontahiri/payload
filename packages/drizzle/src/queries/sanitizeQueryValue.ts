@@ -219,15 +219,19 @@ export const sanitizeQueryValue = ({
           .filter(Boolean)
       }
       if (Array.isArray(formattedValue)) {
-        formattedValue = formattedValue.map((value) => {
-          if (idType === 'number') {
-            return Number(value)
-          }
-          if (idType === 'text') {
-            return String(value)
-          }
-          return value
-        })
+        formattedValue = Array.from(
+          new Set(
+            formattedValue.map((value) => {
+              if (idType === 'number') {
+                return Number(value)
+              }
+              if (idType === 'text') {
+                return String(value)
+              }
+              return value
+            }),
+          ),
+        )
       } else {
         if (idType === 'number') {
           formattedValue = Number(val)
