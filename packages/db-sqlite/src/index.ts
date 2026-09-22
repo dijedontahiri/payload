@@ -24,7 +24,6 @@ import {
   findGlobalVersions,
   findOne,
   findVersions,
-  migrate,
   migrateDown,
   migrateFresh,
   migrateRefresh,
@@ -61,6 +60,7 @@ import { fileURLToPath } from 'url'
 import type { Args, SQLiteAdapter, WalConfig } from './types.js'
 
 import { connect } from './connect.js'
+import { migrate } from './migrate.js'
 
 const filename = fileURLToPath(import.meta.url)
 
