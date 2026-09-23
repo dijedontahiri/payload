@@ -1,0 +1,122 @@
+name: Validate issue 18272 product candidate v2
+
+on:
+  push:
+    branches:
+      - validate/18272-product-final-v2
+
+permissions:
+  contents: read
+
+jobs:
+  reproduce-and-validate:
+    if: github.repository == 'dijedontahiri/payload'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      BASE_SHA: 6254c3bf561a205223849a6497d7dae824d4e81b
+      CANDIDATE_SHA: fe13757fc427d871c83c714f434ff342f7bd38fb
+      PAYLOAD_DATABASE: postgres
+      POSTGRES_URL: postgres://payload:payload@127.0.0.1:5433/payload
+      NODE_OPTIONS: --no-deprecation --no-experimental-strip-types --max-old-space-size=6144
+      DO_NOT_TRACK: '1'
+      NEXT_TELEMETRY_DISABLED: '1'
+    steps:
+      - name: Checkout exact baseline
+        uses: actions/checkout@v5
+        with:
+          repository: dijedontahiri/payload
+          ref: 6254c3bf561a205223849a6497d7dae824d4e81b
+          fetch-depth: 0
+
+      - name: Verify immutable identities
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$BASE_SHA"
+          git cat-file -e "$CANDIDATE_SHA^{commit}"
+          git diff --exit-code
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24.13.0
+
+      - name: Set up pnpm
+        shell: bash
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.9.0 --activate
+          test "$(node --version)" = "v24.13.0"
+          test "$(pnpm --version)" = "11.9.0"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        timeout-minutes: 15
+
+      - name: Overlay only committed regression on baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p test/relationships-block-path
+          git show "$CANDIDATE_SHA:test/relationships-block-path/config.ts" > test/relationships-block-path/config.ts
+          git show "$CANDIDATE_SHA:test/relationships-block-path/int.spec.ts" > test/relationships-block-path/int.spec.ts
+          git diff --check
+
+      - name: Start PostgreSQL
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker compose -f test/docker-compose.yml --profile postgres up -d --wait postgres
+
+      - name: Prove negative control fails at intended assertion
+        shell: bash
+        run: |
+          set -o pipefail
+          set +e
+          pnpm exec vitest run --project int test/relationships-block-path/int.spec.ts --retry=0 2>&1 | tee /tmp/negative.log
+          status=${PIPESTATUS[0]}
+          set -e
+          test "$status" -ne 0
+          grep -F "issue 18272 regression: relationship in non-first block definition should be queryable" /tmp/negative.log
+          if grep -Eq "Failed to load|Cannot find module|ECONNREFUSED|setup failed|beforeAll" /tmp/negative.log; then
+            echo "negative control failed for setup/import reasons" >&2
+            exit 1
+          fi
+
+      - name: Reset to exact product candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          git reset --hard "$CANDIDATE_SHA"
+          git clean -fd
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+          git diff --exit-code
+
+      - name: Prove exact candidate passes focused PostgreSQL regression
+        run: pnpm exec vitest run --project int test/relationships-block-path/int.spec.ts --retry=0
+
+      - name: Run broader relationships PostgreSQL coverage
+        run: pnpm exec vitest run --project int test/relationships/int.spec.ts --retry=0
+        timeout-minutes: 10
+
+      - name: Check candidate formatting
+        run: pnpm exec prettier --check packages/drizzle/src/queries/getTableColumnFromPath.ts test/relationships-block-path/config.ts test/relationships-block-path/int.spec.ts
+
+      - name: Lint candidate files
+        run: pnpm exec eslint packages/drizzle/src/queries/getTableColumnFromPath.ts test/relationships-block-path/config.ts test/relationships-block-path/int.spec.ts
+
+      - name: Build affected Drizzle package
+        run: pnpm run build:drizzle
+        timeout-minutes: 15
+
+      - name: Verify exact final tree and patch scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+          git diff --check "$BASE_SHA...$CANDIDATE_SHA"
+          test "$(git diff --name-only "$BASE_SHA...$CANDIDATE_SHA" | sort | tr '\n' ' ')" = "packages/drizzle/src/queries/getTableColumnFromPath.ts test/relationships-block-path/config.ts test/relationships-block-path/int.spec.ts "
+          grep -F 'const blockConstraintPath = `${constraintPath}${field.name}.%.`' packages/drizzle/src/queries/getTableColumnFromPath.ts
+          grep -F 'constraintPath: blockConstraintPath' packages/drizzle/src/queries/getTableColumnFromPath.ts
+          git diff --exit-code
