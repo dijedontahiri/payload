@@ -1,0 +1,138 @@
+name: Validate issue 18272 block relationship query path
+
+on:
+  push:
+    branches:
+      - validate/18272-block-relationship-path
+
+permissions:
+  contents: read
+
+jobs:
+  reproduce-and-validate:
+    if: github.repository == 'dijedontahiri/payload'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      BASE_SHA: 6254c3bf561a205223849a6497d7dae824d4e81b
+      PAYLOAD_DATABASE: postgres
+      POSTGRES_URL: postgres://payload:payload@127.0.0.1:5433/payload
+      NODE_OPTIONS: --no-deprecation --no-experimental-strip-types --max-old-space-size=6144
+      DO_NOT_TRACK: '1'
+      NEXT_TELEMETRY_DISABLED: '1'
+    steps:
+      - name: Checkout exact upstream source
+        uses: actions/checkout@v5
+        with:
+          repository: dijedontahiri/payload
+          ref: 6254c3bf561a205223849a6497d7dae824d4e81b
+          fetch-depth: 0
+
+      - name: Verify source identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$BASE_SHA"
+          git diff --exit-code
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24.13.0
+
+      - name: Set up pnpm
+        shell: bash
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.9.0 --activate
+          test "$(node --version)" = "v24.13.0"
+          test "$(pnpm --version)" = "11.9.0"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        timeout-minutes: 15
+
+      - name: Add focused regression fixture in workspace
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          config = Path('test/relationships/config.ts')
+          text = config.read_text()
+          old = """          blocks: [\n            {\n              slug: 'block',\n"""
+          new = """          blocks: [\n            {\n              slug: 'unrelatedBlock',\n              fields: [\n                {\n                  name: 'label',\n                  type: 'text',\n                },\n              ],\n            },\n            {\n              slug: 'block',\n"""
+          assert text.count(old) == 1, text.count(old)
+          config.write_text(text.replace(old, new, 1))
+
+          spec = Path('test/relationships/int.spec.ts')
+          text = spec.read_text()
+          old = """        expect(docs[0].id).toBe(doc.id)\n      })\n\n      it('should allow querying within tabs-blocks-tabs'"""
+          new = """        expect(\n          docs.map((item) => item.id),\n          'issue 18272 regression: relationship block after unrelated block should be queryable',\n        ).toContain(doc.id)\n      })\n\n      it('should allow querying within tabs-blocks-tabs'"""
+          assert text.count(old) == 1, text.count(old)
+          spec.write_text(text.replace(old, new, 1))
+          PY
+          git diff --check
+
+      - name: Start PostgreSQL
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker compose -f test/docker-compose.yml --profile postgres up -d --wait postgres
+
+      - name: Prove negative control fails at regression assertion
+        shell: bash
+        run: |
+          set -o pipefail
+          set +e
+          pnpm exec vitest run --project int test/relationships/int.spec.ts -t "should allow querying within blocks" --retry=0 2>&1 | tee /tmp/negative.log
+          status=${PIPESTATUS[0]}
+          set -e
+          test "$status" -ne 0
+          grep -F "issue 18272 regression: relationship block after unrelated block should be queryable" /tmp/negative.log
+          if grep -Eq "Failed to load|Cannot find module|ECONNREFUSED|setup failed|beforeAll" /tmp/negative.log; then
+            echo "negative control failed for setup/import reasons" >&2
+            exit 1
+          fi
+
+      - name: Apply minimal candidate in workspace
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('packages/drizzle/src/queries/getTableColumnFromPath.ts')
+          text = path.read_text()
+          old1 = """          constraintPath = `${constraintPath}${field.name}.%.`\n\n          let result: TableColumn\n"""
+          new1 = """          const blockConstraintPath = `${constraintPath}${field.name}.%.`\n\n          let result: TableColumn\n"""
+          old2 = """              collectionPath,\n              constraintPath,\n              constraints: blockConstraints,\n              fields: block.flattenedFields,\n"""
+          new2 = """              collectionPath,\n              constraintPath: blockConstraintPath,\n              constraints: blockConstraints,\n              fields: block.flattenedFields,\n"""
+          assert text.count(old1) == 1, text.count(old1)
+          assert text.count(old2) == 1, text.count(old2)
+          text = text.replace(old1, new1, 1).replace(old2, new2, 1)
+          path.write_text(text)
+          PY
+          git diff --check
+
+      - name: Prove candidate passes focused PostgreSQL regression
+        run: pnpm exec vitest run --project int test/relationships/int.spec.ts -t "should allow querying within blocks" --retry=0
+
+      - name: Check candidate formatting
+        run: pnpm exec prettier --check packages/drizzle/src/queries/getTableColumnFromPath.ts test/relationships/config.ts test/relationships/int.spec.ts
+
+      - name: Lint candidate source and regression
+        run: pnpm exec eslint packages/drizzle/src/queries/getTableColumnFromPath.ts test/relationships/config.ts test/relationships/int.spec.ts
+
+      - name: Build affected Drizzle package
+        run: pnpm run build:drizzle
+        timeout-minutes: 15
+
+      - name: Verify candidate patch scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$BASE_SHA"
+          git diff --check
+          git diff --name-only | sort
+          test "$(git diff --name-only | sort | tr '\n' ' ')" = "packages/drizzle/src/queries/getTableColumnFromPath.ts test/relationships/config.ts test/relationships/int.spec.ts "
+          grep -F "const blockConstraintPath = \`${constraintPath}${field.name}.%.\`" packages/drizzle/src/queries/getTableColumnFromPath.ts
+          grep -F "constraintPath: blockConstraintPath" packages/drizzle/src/queries/getTableColumnFromPath.ts
