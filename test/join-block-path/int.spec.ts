@@ -32,13 +32,13 @@ describe('join fields through blocks', { db: (adapter) => adapter.startsWith('po
     const page = await payload.create({
       collection: 'pages',
       data: {
-        title: 'Issue 18273 page',
         layout: [
           {
             blockType: 'documentList',
             docs: [relatedDocument.id],
           },
         ],
+        title: 'Issue 18273 page',
       },
       depth: 0,
     })
@@ -48,8 +48,8 @@ describe('join fields through blocks', { db: (adapter) => adapter.startsWith('po
 
     try {
       populatedDocument = await payload.findByID({
-        collection: 'documents',
         id: relatedDocument.id,
+        collection: 'documents',
         depth: 0,
       })
     } catch (error) {
