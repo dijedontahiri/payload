@@ -1,0 +1,312 @@
+name: Validate issue 13933 custom block component v2 r2
+
+on:
+  push:
+    branches:
+      - validate/13933-custom-block-component-v2-r2
+
+permissions:
+  contents: read
+
+env:
+  BASE_SHA: e6efd709d8c458465695d56e286ca981cbe6a19d
+  CANDIDATE_SHA: a354773a6853433251fd732f9853d5ce6841e173
+
+jobs:
+  baseline-browser-control:
+    if: github.repository == 'dijedontahiri/payload'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact baseline
+        uses: actions/checkout@v5
+        with:
+          ref: e6efd709d8c458465695d56e286ca981cbe6a19d
+          fetch-depth: 12
+
+      - name: Verify exact baseline
+        run: test "$(git rev-parse HEAD)" = "$BASE_SHA"
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .tool-versions
+
+      - name: Set up pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.9.0 --activate
+          node --version
+          pnpm --version
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        timeout-minutes: 15
+
+      - name: Build core runtime
+        run: pnpm run build:core
+        timeout-minutes: 20
+
+      - name: Install Chromium
+        run: pnpm exec playwright install --with-deps chromium --no-shell
+        timeout-minutes: 8
+
+      - name: Prepare isolated custom block browser regression
+        run: |
+          mkdir -p test/fields/collections/Blocks/components
+          cat > test/fields/collections/Blocks/components/CustomBlock.tsx <<'EOF'
+          const CustomBlock = () => (
+            <div data-testid="custom-block-component">Custom Block Component</div>
+          )
+
+          export default CustomBlock
+          EOF
+
+          python3 <<'PY'
+          from pathlib import Path
+
+          index_path = Path('test/fields/collections/Blocks/index.ts')
+          index_text = index_path.read_text()
+          index_marker = "    getBlocksField(),\n"
+          assert index_text.count(index_marker) >= 1
+          index_fixture = """    getBlocksField(),
+              {
+                name: 'customBlockComponent',
+                type: 'blocks',
+                blocks: [
+                  {
+                    slug: 'customBlock',
+                    labels: {
+                      singular: 'Custom Block',
+                      plural: 'Custom Blocks',
+                    },
+                    admin: {
+                      components: {
+                        Block: './collections/Blocks/components/CustomBlock.tsx',
+                      },
+                    },
+                    fields: [],
+                  },
+                ],
+              },
+          """
+          index_path.write_text(index_text.replace(index_marker, index_fixture, 1))
+
+          e2e_path = Path('test/fields/collections/Blocks/e2e.spec.ts')
+          e2e_text = e2e_path.read_text()
+          e2e_marker = "  test('should open blocks drawer and select first block', async () => {"
+          assert e2e_text.count(e2e_marker) == 1
+          e2e_fixture = """  test('should render custom block component', async () => {
+              await page.goto(url.create)
+
+              const blocksDrawer = await openBlocksDrawer({
+                page,
+                fieldName: 'customBlockComponent',
+              })
+
+              await blocksDrawer.getByRole('button', { name: 'Custom Block', exact: true }).click()
+
+              const { writeFileSync } = await import('node:fs')
+              writeFileSync(`${process.env.RUNNER_TEMP}/13933-test-entered`, 'ok')
+
+              const customBlock = page.getByTestId('custom-block-component')
+              const customCount = await customBlock.count()
+              if (customCount !== 1) {
+                throw new Error(`ISSUE13933_CUSTOM_BLOCK_NOT_RENDERED count=${customCount}`)
+              }
+              await expect(customBlock).toHaveText('Custom Block Component')
+              writeFileSync(`${process.env.RUNNER_TEMP}/13933-custom-visible`, 'ok')
+
+              const defaultCount = await page.locator('#field-customBlockComponent .collapsible').count()
+              if (defaultCount !== 0) {
+                throw new Error(`ISSUE13933_DEFAULT_BLOCK_CHROME_PRESENT count=${defaultCount}`)
+              }
+              writeFileSync(`${process.env.RUNNER_TEMP}/13933-no-default-collapsible`, 'ok')
+            })
+
+          """ + e2e_marker
+          e2e_path.write_text(e2e_text.replace(e2e_marker, e2e_fixture, 1))
+
+          config_path = Path('test/playwright.config.ts')
+          config_text = config_path.read_text()
+          retry_marker = "  retries: CI ? 5 : undefined,\n"
+          assert config_text.count(retry_marker) == 1
+          config_path.write_text(config_text.replace(retry_marker, "  retries: 0,\n"))
+          PY
+
+      - name: Prove browser regression fails for intended reason on baseline
+        run: |
+          set +e
+          pnpm test:e2e fields__collections__Blocks --grep "should render custom block component" --workers=1 2>&1 | tee "$RUNNER_TEMP/e2e-baseline.log"
+          status=${PIPESTATUS[0]}
+          set -e
+          test "$status" -ne 0
+          test -f "$RUNNER_TEMP/13933-test-entered"
+          grep -Fq "ISSUE13933_CUSTOM_BLOCK_NOT_RENDERED" "$RUNNER_TEMP/e2e-baseline.log"
+          test ! -f "$RUNNER_TEMP/13933-custom-visible"
+        timeout-minutes: 15
+
+      - name: Restore and verify exact baseline
+        if: always()
+        run: |
+          git reset --hard "$BASE_SHA"
+          git clean -fd
+          test "$(git rev-parse HEAD)" = "$BASE_SHA"
+          test -z "$(git status --porcelain)"
+
+  candidate-browser:
+    if: github.repository == 'dijedontahiri/payload'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v5
+        with:
+          ref: a354773a6853433251fd732f9853d5ce6841e173
+          fetch-depth: 12
+
+      - name: Verify exact candidate and scope
+        run: |
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+          test "$(git rev-parse HEAD^)" = "$BASE_SHA"
+          git diff --check "$BASE_SHA"..HEAD
+          test "$(git diff --name-only "$BASE_SHA"..HEAD | wc -l)" -eq 4
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .tool-versions
+
+      - name: Set up pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.9.0 --activate
+          node --version
+          pnpm --version
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        timeout-minutes: 15
+
+      - name: Recheck focused unit regression
+        run: pnpm exec vitest run --project unit packages/ui/src/forms/fieldSchemasToFormState/renderField.spec.ts
+
+      - name: Recheck formatting and lint
+        run: |
+          pnpm exec prettier --check packages/payload/src/admin/forms/Form.ts packages/ui/src/fields/Blocks/BlockRow.tsx packages/ui/src/forms/fieldSchemasToFormState/renderField.tsx packages/ui/src/forms/fieldSchemasToFormState/renderField.spec.ts
+          pnpm exec eslint packages/payload/src/admin/forms/Form.ts packages/ui/src/fields/Blocks/BlockRow.tsx packages/ui/src/forms/fieldSchemasToFormState/renderField.tsx packages/ui/src/forms/fieldSchemasToFormState/renderField.spec.ts
+
+      - name: Build core runtime
+        run: pnpm run build:core
+        timeout-minutes: 20
+
+      - name: Install Chromium
+        run: pnpm exec playwright install --with-deps chromium --no-shell
+        timeout-minutes: 8
+
+      - name: Prepare isolated custom block browser regression
+        run: |
+          mkdir -p test/fields/collections/Blocks/components
+          cat > test/fields/collections/Blocks/components/CustomBlock.tsx <<'EOF'
+          const CustomBlock = () => (
+            <div data-testid="custom-block-component">Custom Block Component</div>
+          )
+
+          export default CustomBlock
+          EOF
+
+          python3 <<'PY'
+          from pathlib import Path
+
+          index_path = Path('test/fields/collections/Blocks/index.ts')
+          index_text = index_path.read_text()
+          index_marker = "    getBlocksField(),\n"
+          assert index_text.count(index_marker) >= 1
+          index_fixture = """    getBlocksField(),
+              {
+                name: 'customBlockComponent',
+                type: 'blocks',
+                blocks: [
+                  {
+                    slug: 'customBlock',
+                    labels: {
+                      singular: 'Custom Block',
+                      plural: 'Custom Blocks',
+                    },
+                    admin: {
+                      components: {
+                        Block: './collections/Blocks/components/CustomBlock.tsx',
+                      },
+                    },
+                    fields: [],
+                  },
+                ],
+              },
+          """
+          index_path.write_text(index_text.replace(index_marker, index_fixture, 1))
+
+          e2e_path = Path('test/fields/collections/Blocks/e2e.spec.ts')
+          e2e_text = e2e_path.read_text()
+          e2e_marker = "  test('should open blocks drawer and select first block', async () => {"
+          assert e2e_text.count(e2e_marker) == 1
+          e2e_fixture = """  test('should render custom block component', async () => {
+              await page.goto(url.create)
+
+              const blocksDrawer = await openBlocksDrawer({
+                page,
+                fieldName: 'customBlockComponent',
+              })
+
+              await blocksDrawer.getByRole('button', { name: 'Custom Block', exact: true }).click()
+
+              const { writeFileSync } = await import('node:fs')
+              writeFileSync(`${process.env.RUNNER_TEMP}/13933-test-entered`, 'ok')
+
+              const customBlock = page.getByTestId('custom-block-component')
+              const customCount = await customBlock.count()
+              if (customCount !== 1) {
+                throw new Error(`ISSUE13933_CUSTOM_BLOCK_NOT_RENDERED count=${customCount}`)
+              }
+              await expect(customBlock).toHaveText('Custom Block Component')
+              writeFileSync(`${process.env.RUNNER_TEMP}/13933-custom-visible`, 'ok')
+
+              const defaultCount = await page.locator('#field-customBlockComponent .collapsible').count()
+              if (defaultCount !== 0) {
+                throw new Error(`ISSUE13933_DEFAULT_BLOCK_CHROME_PRESENT count=${defaultCount}`)
+              }
+              writeFileSync(`${process.env.RUNNER_TEMP}/13933-no-default-collapsible`, 'ok')
+            })
+
+          """ + e2e_marker
+          e2e_path.write_text(e2e_text.replace(e2e_marker, e2e_fixture, 1))
+
+          config_path = Path('test/playwright.config.ts')
+          config_text = config_path.read_text()
+          retry_marker = "  retries: CI ? 5 : undefined,\n"
+          assert config_text.count(retry_marker) == 1
+          config_path.write_text(config_text.replace(retry_marker, "  retries: 0,\n"))
+          PY
+
+      - name: Run browser regression once without CI retries
+        run: |
+          set +e
+          pnpm test:e2e fields__collections__Blocks --grep "should render custom block component" --workers=1 2>&1 | tee "$RUNNER_TEMP/e2e-candidate.log"
+          status=${PIPESTATUS[0]}
+          set -e
+          test "$status" -eq 0
+          test -f "$RUNNER_TEMP/13933-test-entered"
+          test -f "$RUNNER_TEMP/13933-custom-visible"
+          test -f "$RUNNER_TEMP/13933-no-default-collapsible"
+          ! grep -Fq "ISSUE13933_" "$RUNNER_TEMP/e2e-candidate.log"
+        timeout-minutes: 15
+
+      - name: Restore exact candidate and review clean product diff
+        if: always()
+        run: |
+          git reset --hard "$CANDIDATE_SHA"
+          git clean -fd
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+          test "$(git rev-parse HEAD^)" = "$BASE_SHA"
+          git diff --check "$BASE_SHA"..HEAD
+          test "$(git diff --name-only "$BASE_SHA"..HEAD | wc -l)" -eq 4
+          test -z "$(git status --porcelain)"
