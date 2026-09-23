@@ -88,6 +88,12 @@ export const buildQuery = function buildQuery({
     tableName,
   })
 
+  for (const key in selectFields) {
+    if (typeof selectFields[key] === 'undefined') {
+      delete selectFields[key]
+    }
+  }
+
   return {
     joins,
     orderBy,
