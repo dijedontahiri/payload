@@ -49,6 +49,9 @@ describe('block relationship query paths', { db: (adapter) => adapter.startsWith
       },
     })
 
-    expect(result.docs.map((doc) => doc.id)).toContain(page.id)
+    expect(
+      result.docs.map((doc) => doc.id),
+      'issue 18272 regression: relationship in non-first block definition should be queryable',
+    ).toContain(page.id)
   })
 })
