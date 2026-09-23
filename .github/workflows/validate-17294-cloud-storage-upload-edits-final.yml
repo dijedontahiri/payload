@@ -69,9 +69,9 @@ jobs:
       - name: Lint changed files
         run: pnpm exec eslint packages/plugin-cloud-storage/src/hooks/afterChange.ts packages/plugin-cloud-storage/src/hooks/afterChange.spec.ts
 
-      - name: Build cloud storage plugin
-        run: pnpm --filter @payloadcms/plugin-cloud-storage build
-        timeout-minutes: 10
+      - name: Build cloud storage plugin with workspace dependencies
+        run: pnpm run build:plugin-cloud-storage
+        timeout-minutes: 15
 
       - name: Start PostgreSQL and LocalStack
         shell: bash
