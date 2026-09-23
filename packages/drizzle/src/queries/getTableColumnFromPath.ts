@@ -286,6 +286,7 @@ export const getTableColumnFromPath = ({
               fields: block.flattenedFields,
               joins: newJoins,
               locale,
+              parentAliasTable: aliasTable,
               parentIsLocalized: parentIsLocalized || field.localized,
               pathSegments: pathSegments.slice(1),
               rootTableName,
