@@ -1,5 +1,7 @@
 import type { CollectionAfterChangeHook, CollectionConfig, FileData, TypeWithID } from 'payload'
 
+import { isolateObjectProperty } from 'payload'
+
 import type { GeneratedAdapter } from '../types.js'
 
 import { buildPrefixWithObjectKey } from '../utilities/buildPrefixWithObjectKey.js'
@@ -94,6 +96,10 @@ export const getAfterChangeHook =
           req.file = undefined
           req.payloadUploadSizes = undefined
 
+          const metadataReq = isolateObjectProperty(req, 'query')
+          metadataReq.query = { ...req.query }
+          delete metadataReq.query.uploadEdits
+
           try {
             await req.payload.update({
               id: doc.id,
@@ -101,7 +107,7 @@ export const getAfterChangeHook =
               data: uploadMetadata,
               depth: 0,
               draft: isDraftSave,
-              req,
+              req: metadataReq,
             })
           } finally {
             delete req.context.skipCloudStorage
