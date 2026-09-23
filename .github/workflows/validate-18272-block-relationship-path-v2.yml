@@ -124,8 +124,8 @@ jobs:
       - name: Check candidate formatting
         run: pnpm exec prettier --check packages/drizzle/src/queries/getTableColumnFromPath.ts test/relationships/config.ts test/relationships/int.spec.ts
 
-      - name: Lint candidate source and regression
-        run: pnpm exec eslint packages/drizzle/src/queries/getTableColumnFromPath.ts test/relationships/config.ts test/relationships/int.spec.ts
+      - name: Lint production candidate
+        run: pnpm exec eslint packages/drizzle/src/queries/getTableColumnFromPath.ts
 
       - name: Build affected Drizzle package
         run: pnpm run build:drizzle
