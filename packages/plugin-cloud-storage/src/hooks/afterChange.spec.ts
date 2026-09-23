@@ -99,4 +99,45 @@ describe('upload replacement cleanup', () => {
       { filename: 'thumb.png', storageFilePath: 'media/invoices/old-key/thumb.png' },
     ])
   })
+
+  it('should not pass upload edits into the metadata persistence update', async () => {
+    const update = vi.fn().mockResolvedValue({})
+    const uploadEdits = {
+      crop: { height: 400, width: 640, x: 0, y: 0 },
+      heightInPixels: 400,
+      widthInPixels: 640,
+    }
+    const hook = getAfterChangeHook({
+      adapter: {
+        handleDelete: vi.fn(),
+        handleUpload: vi.fn().mockResolvedValue({ height: 400, width: 640 }),
+      } as never,
+      collection: { slug: 'media' } as never,
+    })
+    const req = {
+      context: {},
+      file: { data: Buffer.from('file'), size: 4 },
+      payload: { logger: { error: vi.fn() }, update },
+      query: { preserve: 'value', uploadEdits },
+    }
+
+    await hook({
+      doc: {
+        id: 1,
+        filename: 'file.png',
+        height: 400,
+        mimeType: 'image/png',
+        width: 640,
+      },
+      operation: 'update',
+      req,
+    } as never)
+
+    expect(update).toHaveBeenCalledTimes(1)
+
+    const nestedReq = update.mock.calls[0]?.[0]?.req
+
+    expect(nestedReq.query).toEqual({ preserve: 'value' })
+    expect(req.query.uploadEdits).toEqual(uploadEdits)
+  })
 })
