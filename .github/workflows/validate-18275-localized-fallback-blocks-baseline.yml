@@ -43,7 +43,8 @@ jobs:
           cp /tmp/issue-18275/config.ts test/localized-fallback-blocks/config.ts
           cp /tmp/issue-18275/int.spec.ts test/localized-fallback-blocks/int.spec.ts
           git diff --check
-          test "$(git diff --name-only | sort | tr '\n' ' ')" = "test/localized-fallback-blocks/config.ts test/localized-fallback-blocks/int.spec.ts "
+          test -z "$(git diff --name-only)"
+          test "$(git ls-files --others --exclude-standard test/localized-fallback-blocks | sort | tr '\n' ' ')" = "test/localized-fallback-blocks/config.ts test/localized-fallback-blocks/int.spec.ts "
 
       - name: Set up Node
         uses: actions/setup-node@v6
@@ -92,4 +93,5 @@ jobs:
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$BASE_SHA"
           git diff --check
-          test "$(git diff --name-only | sort | tr '\n' ' ')" = "test/localized-fallback-blocks/config.ts test/localized-fallback-blocks/int.spec.ts "
+          test -z "$(git diff --name-only)"
+          test "$(git ls-files --others --exclude-standard test/localized-fallback-blocks | sort | tr '\n' ' ')" = "test/localized-fallback-blocks/config.ts test/localized-fallback-blocks/int.spec.ts "
