@@ -33,8 +33,8 @@ export default buildConfigWithDefaults({
                 {
                   name: 'documents',
                   type: 'relationship',
-                  relationTo: 'documents',
                   hasMany: true,
+                  relationTo: 'documents',
                 },
               ],
             },
