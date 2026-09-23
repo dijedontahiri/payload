@@ -40,6 +40,81 @@ export type BuildQueryResult = {
   where: SQL
 }
 
+const normalizeBlockSchemaPath = ({
+  adapter,
+  fields,
+  path,
+}: {
+  adapter: DrizzleAdapter
+  fields: FlattenedField[]
+  path: string
+}): string => {
+  const segments = path.split('.')
+  const normalizedSegments: string[] = []
+  let currentFields = fields
+
+  for (let index = 0; index < segments.length; index++) {
+    const segment = segments[index]
+    const field = currentFields.find((candidate) => candidate.name === segment)
+
+    if (!field) {
+      normalizedSegments.push(...segments.slice(index))
+      break
+    }
+
+    normalizedSegments.push(segment)
+
+    if (field.type === 'blocks' && index + 1 < segments.length) {
+      const blockSlug = segments[index + 1]
+      const block = (field.blockReferences ?? field.blocks)
+        .map((candidate) =>
+          typeof candidate === 'string' ? adapter.payload.blocks[candidate] : candidate,
+        )
+        .find((candidate) => candidate?.slug === blockSlug)
+
+      if (block) {
+        currentFields = block.flattenedFields
+        index += 1
+        continue
+      }
+    }
+
+    if ('flattenedFields' in field) {
+      currentFields = field.flattenedFields
+    } else if (index + 1 < segments.length) {
+      normalizedSegments.push(...segments.slice(index + 1))
+      break
+    }
+  }
+
+  return normalizedSegments.join('.')
+}
+
+const normalizeBlockSchemaPathsInWhere = ({
+  adapter,
+  fields,
+  where,
+}: {
+  adapter: DrizzleAdapter
+  fields: FlattenedField[]
+  where: Where
+}): Where => {
+  const normalizedWhere: Where = {}
+
+  for (const [key, value] of Object.entries(where)) {
+    if ((key === 'and' || key === 'or') && Array.isArray(value)) {
+      normalizedWhere[key] = value.map((clause) =>
+        normalizeBlockSchemaPathsInWhere({ adapter, fields, where: clause }),
+      )
+      continue
+    }
+
+    normalizedWhere[normalizeBlockSchemaPath({ adapter, fields, path: key })] = value
+  }
+
+  return normalizedWhere
+}
+
 export const buildQuery = function buildQuery({
   adapter,
   aliasTable,
@@ -71,7 +146,7 @@ export const buildQuery = function buildQuery({
       selectFields,
       selectLocale,
       tableName,
-      where: incomingWhere,
+      where: normalizeBlockSchemaPathsInWhere({ adapter, fields, where: incomingWhere }),
     })
   }
 
@@ -87,12 +162,6 @@ export const buildQuery = function buildQuery({
     sort: context.sort,
     tableName,
   })
-
-  for (const key in selectFields) {
-    if (typeof selectFields[key] === 'undefined') {
-      delete selectFields[key]
-    }
-  }
 
   return {
     joins,
