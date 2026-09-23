@@ -1,0 +1,140 @@
+name: Validate issue 14229 current production reproduction
+
+on:
+  push:
+    branches:
+      - validation/14229-current-production-repro
+
+permissions:
+  contents: read
+
+jobs:
+  reproduce:
+    if: github.repository == 'dijedontahiri/payload'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    services:
+      mongo:
+        image: mongo:7
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.runCommand({ ping: 1 }).ok'"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    steps:
+      - name: Checkout immutable upstream reproduction
+        uses: actions/checkout@v6
+        with:
+          repository: andershermansen/repro-payload-issue-14229
+          ref: f46b06dc2fd121416618328e280f3d574b78624c
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify reproduction source
+        run: test "$(git rev-parse HEAD)" = "f46b06dc2fd121416618328e280f3d574b78624c"
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24.13.0
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.9.0
+          run_install: false
+
+      - name: Update reproduction to current Payload release
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs'
+          const packageJson = JSON.parse(fs.readFileSync('package.json', 'utf8'))
+          for (const name of [
+            '@payloadcms/db-mongodb',
+            '@payloadcms/next',
+            '@payloadcms/richtext-lexical',
+            '@payloadcms/ui',
+            'payload',
+          ]) {
+            packageJson.dependencies[name] = '3.90.2'
+          }
+          packageJson.dependencies.next = '16.3.3'
+          packageJson.dependencies.react = '19.2.6'
+          packageJson.dependencies['react-dom'] = '19.2.6'
+          fs.writeFileSync('package.json', `${JSON.stringify(packageJson, null, 2)}\n`)
+          NODE
+          sed -i "s/cache: 'no-cache'/cache: 'no-store'/" src/payload.config.ts
+          grep -F "cache: 'no-store'" src/payload.config.ts
+
+      - name: Install reproduction dependencies
+        run: pnpm install --no-frozen-lockfile
+        timeout-minutes: 12
+
+      - name: Build production app
+        env:
+          DATABASE_URL: mongodb://127.0.0.1:27017/payload14229
+          PAYLOAD_SECRET: test-secret-14229
+        run: pnpm build
+        timeout-minutes: 10
+
+      - name: Run production app and prove endpoint itself is dynamic
+        shell: bash
+        env:
+          DATABASE_URL: mongodb://127.0.0.1:27017/payload14229
+          PAYLOAD_SECRET: test-secret-14229
+        run: |
+          pnpm start > "$RUNNER_TEMP/14229-server.log" 2>&1 &
+          echo $! > "$RUNNER_TEMP/14229-server.pid"
+
+          for attempt in $(seq 1 40); do
+            if curl --fail --silent http://127.0.0.1:3000/api/hello > "$RUNNER_TEMP/hello-a.json"; then
+              break
+            fi
+            sleep 1
+          done
+          test -s "$RUNNER_TEMP/hello-a.json"
+          sleep 2
+          curl --fail --silent http://127.0.0.1:3000/api/hello > "$RUNNER_TEMP/hello-b.json"
+
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs'
+          const a = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + '/hello-a.json', 'utf8'))
+          const b = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + '/hello-b.json', 'utf8'))
+          console.log('Direct endpoint timestamps:', a.time, b.time)
+          if (!a.time || !b.time || a.time === b.time) {
+            throw new Error('Control endpoint did not return distinct timestamps')
+          }
+          NODE
+
+          sleep 35
+          cat "$RUNNER_TEMP/14229-server.log"
+
+      - name: Prove recurring jobs receive the same cached response
+        shell: bash
+        run: |
+          mapfile -t timestamps < <(grep -E "time: '[0-9]{4}-" "$RUNNER_TEMP/14229-server.log" | sed -E "s/.*time: '([^']+)'.*/\1/")
+          printf 'Observed job timestamps:\n%s\n' "${timestamps[*]}"
+
+          if [ "${#timestamps[@]}" -lt 2 ]; then
+            echo "Fewer than two task fetch results were observed; reproduction is inconclusive."
+            exit 3
+          fi
+
+          unique_count=$(printf '%s\n' "${timestamps[@]}" | sort -u | wc -l)
+          if [ "$unique_count" -ne 1 ]; then
+            echo "Task fetch timestamps changed across runs; issue #14229 did not reproduce on the current release."
+            exit 4
+          fi
+
+          echo "Reproduced #14229: the endpoint itself is dynamic, but repeated production job fetches returned one timestamp."
+
+      - name: Stop production app
+        if: always()
+        shell: bash
+        run: |
+          if [ -f "$RUNNER_TEMP/14229-server.pid" ]; then
+            kill "$(cat "$RUNNER_TEMP/14229-server.pid")" 2>/dev/null || true
+          fi
