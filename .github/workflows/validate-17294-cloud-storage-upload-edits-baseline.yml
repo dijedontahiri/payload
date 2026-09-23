@@ -1,0 +1,58 @@
+name: Validate issue 17294 cloud storage upload edits baseline
+
+on:
+  push:
+    branches:
+      - validate/17294-cloud-storage-upload-edits-baseline
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    if: github.repository == 'dijedontahiri/payload'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      BASE_SHA: e6efd709d8c458465695d56e286ca981cbe6a19d
+      REPRO_SHA: 20549d72ea6a57b60142bc98508cee4a694bbc3e
+      NODE_OPTIONS: --no-deprecation --no-experimental-strip-types --max-old-space-size=4096
+      DO_NOT_TRACK: '1'
+      NEXT_TELEMETRY_DISABLED: '1'
+    steps:
+      - name: Checkout exact repro
+        uses: actions/checkout@v5
+        with:
+          repository: dijedontahiri/payload
+          ref: 20549d72ea6a57b60142bc98508cee4a694bbc3e
+          fetch-depth: 0
+
+      - name: Verify repro identity and scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$REPRO_SHA"
+          test "$(git merge-base "$BASE_SHA" HEAD)" = "$BASE_SHA"
+          test "$(git diff --name-only "$BASE_SHA"..HEAD | sort | tr '\n' ' ')" = "packages/plugin-cloud-storage/src/hooks/afterChange.spec.ts "
+          git diff --check "$BASE_SHA"..HEAD
+          test "$(git hash-object packages/plugin-cloud-storage/src/hooks/afterChange.spec.ts)" = "3be6745d285c9963b0bb3d4a6e133c614e811bc5"
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24.13.0
+
+      - name: Set up pnpm
+        shell: bash
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.9.0 --activate
+          test "$(node --version)" = "v24.13.0"
+          test "$(pnpm --version)" = "11.9.0"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        timeout-minutes: 15
+
+      - name: Run focused negative control
+        run: pnpm exec vitest run --project unit packages/plugin-cloud-storage/src/hooks/afterChange.spec.ts --retry=0
