@@ -241,7 +241,7 @@ export const getTableColumnFromPath = ({
             adapter.tableNameMap.get(`${tableName}_blocks_${toSnakeCase(block.slug)}`),
           )
 
-          constraintPath = `${constraintPath}${field.name}.%.`
+          const blockConstraintPath = `${constraintPath}${field.name}.%.`
 
           let result: TableColumn
           const blockConstraints = []
@@ -281,7 +281,7 @@ export const getTableColumnFromPath = ({
             result = getTableColumnFromPath({
               adapter,
               collectionPath,
-              constraintPath,
+              constraintPath: blockConstraintPath,
               constraints: blockConstraints,
               fields: block.flattenedFields,
               joins: newJoins,
@@ -921,6 +921,7 @@ export const getTableColumnFromPath = ({
             locale,
             parentIsLocalized: parentIsLocalized || field.localized,
             pathSegments: pathSegments.slice(1),
+            rootTableName,
             selectFields,
             tableName: newTableName,
             value,
