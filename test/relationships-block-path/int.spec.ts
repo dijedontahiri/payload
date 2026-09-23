@@ -2,9 +2,9 @@ import type { Payload } from 'payload'
 
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { afterAll, beforeAll, expect } from 'vitest'
+import { afterAll, beforeAll, expect, it } from 'vitest'
 
-import { describe, it } from '../__helpers/int/vitest.js'
+import { describe } from '../__helpers/int/vitest.js'
 import { initPayloadInt } from '../__helpers/shared/initPayloadInt.js'
 
 const dirname = path.dirname(fileURLToPath(import.meta.url))
