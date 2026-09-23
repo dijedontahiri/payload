@@ -67,22 +67,34 @@ describe('localized blocks fallback publishing', { db: (adapter) => adapter.star
       ).toBe(`CTA ${tabName === 'tab1' ? 'one' : tabName === 'tab2' ? 'two' : 'three'}`)
     }
 
-    const secondPublish = await payload.update({
-      id: page.id,
-      collection: 'pages',
-      data: {
-        _status: 'published',
-        tab1: firstPublish.tab1,
-        tab2: firstPublish.tab2,
-        tab3: firstPublish.tab3,
-      },
-      fallbackLocale: 'en',
-      locale: 'es',
-      overrideAccess: true,
-    })
+    let secondPublish: Awaited<ReturnType<typeof payload.update>> | undefined
+    let secondPublishError: unknown
+
+    try {
+      secondPublish = await payload.update({
+        id: page.id,
+        collection: 'pages',
+        data: {
+          _status: 'published',
+          tab1: firstPublish.tab1,
+          tab2: firstPublish.tab2,
+          tab3: firstPublish.tab3,
+        },
+        fallbackLocale: 'en',
+        locale: 'es',
+        overrideAccess: true,
+      })
+    } catch (error) {
+      secondPublishError = error
+    }
+
+    expect(
+      secondPublishError,
+      'issue 18275 regression: repeated fallback-locale publish should not reject malformed block metadata',
+    ).toBeUndefined()
 
     for (const tabName of ['tab1', 'tab2', 'tab3'] as const) {
-      const block = secondPublish[tabName]?.layout?.[0]
+      const block = secondPublish?.[tabName]?.layout?.[0]
       expect(
         block?.blockType,
         `issue 18275 regression: ${tabName} fallback block should retain blockType after repeated publish`,
