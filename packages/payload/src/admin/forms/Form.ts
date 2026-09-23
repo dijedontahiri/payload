@@ -15,6 +15,7 @@ export type Row = {
   blockType?: string
   collapsed?: boolean
   customComponents?: {
+    Block?: React.ReactNode
     RowLabel?: React.ReactNode
   }
   id: string

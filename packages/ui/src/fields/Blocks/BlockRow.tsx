@@ -130,6 +130,21 @@ export const BlockRow: React.FC<BlocksFieldProps> = ({
     }
   }
 
+  if (row.customComponents?.Block !== undefined) {
+    return (
+      <div
+        id={`${parentPath?.split('.').join('-')}-row-${rowIndex}`}
+        key={`${parentPath}-row-${rowIndex}`}
+        ref={setNodeRef}
+        style={{
+          transform,
+        }}
+      >
+        {row.customComponents.Block}
+      </div>
+    )
+  }
+
   return (
     <div
       id={`${parentPath?.split('.').join('-')}-row-${rowIndex}`}

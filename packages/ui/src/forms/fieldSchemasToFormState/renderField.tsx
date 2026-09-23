@@ -183,6 +183,26 @@ export const renderField: RenderFieldMethod = ({
             (block) => typeof block !== 'string' && block.slug === blockTypeToMatch,
           ) as FlattenedBlock | undefined)
 
+        if (blockConfig.admin?.components && 'Block' in blockConfig.admin.components) {
+          if (!fieldState.rows[rowIndex]?.customComponents) {
+            fieldState.rows[rowIndex].customComponents = {}
+          }
+
+          fieldState.rows[rowIndex].customComponents.Block = !mockRSCs
+            ? RenderServerComponent({
+                clientProps,
+                Component: blockConfig.admin.components.Block,
+                importMap: req.payload.importMap,
+                key: `${rowIndex}`,
+                serverProps: {
+                  ...serverProps,
+                  blockType: row.blockType,
+                  rowNumber: rowIndex + 1,
+                },
+              })
+            : 'Mock'
+        }
+
         if (blockConfig.admin?.components && 'Label' in blockConfig.admin.components) {
           if (!fieldState.rows[rowIndex]?.customComponents) {
             fieldState.rows[rowIndex].customComponents = {}
