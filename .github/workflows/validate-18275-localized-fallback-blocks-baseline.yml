@@ -1,0 +1,95 @@
+name: Validate issue 18275 localized fallback blocks baseline
+
+on:
+  push:
+    branches:
+      - validate/18275-localized-fallback-blocks-baseline
+
+permissions:
+  contents: read
+
+jobs:
+  reproduce:
+    if: github.repository == 'dijedontahiri/payload'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    env:
+      BASE_SHA: 7691ba3515ead1f9b0e571eba88bf3fa83a0878f
+      REPRO_SHA: b28a8d5ebdfae7ac73d6af12c47253591b531be6
+      PAYLOAD_DATABASE: postgres
+      POSTGRES_URL: postgres://payload:payload@127.0.0.1:5433/payload
+      NODE_OPTIONS: --no-deprecation --no-experimental-strip-types --max-old-space-size=6144
+      DO_NOT_TRACK: '1'
+      NEXT_TELEMETRY_DISABLED: '1'
+    steps:
+      - name: Checkout validation tree
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Preserve regression and reset to exact baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse "$REPRO_SHA")" = "$REPRO_SHA"
+          git merge-base --is-ancestor "$BASE_SHA" "$REPRO_SHA"
+          mkdir -p /tmp/issue-18275
+          git show "$REPRO_SHA:test/localized-fallback-blocks/config.ts" > /tmp/issue-18275/config.ts
+          git show "$REPRO_SHA:test/localized-fallback-blocks/int.spec.ts" > /tmp/issue-18275/int.spec.ts
+          git reset --hard "$BASE_SHA"
+          git clean -fd
+          test "$(git rev-parse HEAD)" = "$BASE_SHA"
+          mkdir -p test/localized-fallback-blocks
+          cp /tmp/issue-18275/config.ts test/localized-fallback-blocks/config.ts
+          cp /tmp/issue-18275/int.spec.ts test/localized-fallback-blocks/int.spec.ts
+          git diff --check
+          test "$(git diff --name-only | sort | tr '\n' ' ')" = "test/localized-fallback-blocks/config.ts test/localized-fallback-blocks/int.spec.ts "
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24.13.0
+
+      - name: Set up pnpm
+        shell: bash
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.9.0 --activate
+          test "$(node --version)" = "v24.13.0"
+          test "$(pnpm --version)" = "11.9.0"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        timeout-minutes: 15
+
+      - name: Start PostgreSQL
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker compose -f test/docker-compose.yml --profile postgres up -d --wait postgres
+
+      - name: Prove baseline reproduces issue 18275
+        shell: bash
+        run: |
+          set -o pipefail
+          set +e
+          pnpm exec vitest run --project int test/localized-fallback-blocks/int.spec.ts --retry=0 2>&1 | tee /tmp/repro.log
+          status=${PIPESTATUS[0]}
+          set -e
+          if [ "$status" -eq 0 ]; then
+            echo "Baseline did not reproduce issue 18275" >&2
+            exit 2
+          fi
+          grep -F "issue 18275 regression:" /tmp/repro.log
+          if grep -Eq "Failed to load|Cannot find module|ECONNREFUSED|setup failed|beforeAll" /tmp/repro.log; then
+            echo "Reproduction failed for setup/import reasons" >&2
+            exit 1
+          fi
+
+      - name: Verify immutable baseline and isolated regression scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$BASE_SHA"
+          git diff --check
+          test "$(git diff --name-only | sort | tr '\n' ' ')" = "test/localized-fallback-blocks/config.ts test/localized-fallback-blocks/int.spec.ts "
