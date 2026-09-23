@@ -1,0 +1,98 @@
+name: Validate issue 17294 cloud storage upload edits candidate
+
+on:
+  push:
+    branches:
+      - validate/17294-cloud-storage-upload-edits-final
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    if: github.repository == 'dijedontahiri/payload'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      BASE_SHA: e6efd709d8c458465695d56e286ca981cbe6a19d
+      CANDIDATE_SHA: 6b4035935018513766b73dac96b71dd3f1a7731f
+      PAYLOAD_DATABASE: postgres
+      POSTGRES_URL: postgres://payload:payload@127.0.0.1:5433/payload
+      NODE_OPTIONS: --no-deprecation --no-experimental-strip-types --max-old-space-size=6144
+      DO_NOT_TRACK: '1'
+      NEXT_TELEMETRY_DISABLED: '1'
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v5
+        with:
+          repository: dijedontahiri/payload
+          ref: 6b4035935018513766b73dac96b71dd3f1a7731f
+          fetch-depth: 0
+
+      - name: Verify candidate identity and scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+          test "$(git merge-base "$BASE_SHA" HEAD)" = "$BASE_SHA"
+          test "$(git diff --name-only "$BASE_SHA"..HEAD | sort | tr '\n' ' ')" = "packages/plugin-cloud-storage/src/hooks/afterChange.spec.ts packages/plugin-cloud-storage/src/hooks/afterChange.ts "
+          git diff --check "$BASE_SHA"..HEAD
+          test "$(git hash-object packages/plugin-cloud-storage/src/hooks/afterChange.ts)" = "9069bf9abbfad3ed033cb90c0c4576e12352a7d4"
+          test "$(git hash-object packages/plugin-cloud-storage/src/hooks/afterChange.spec.ts)" = "3be6745d285c9963b0bb3d4a6e133c614e811bc5"
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24.13.0
+
+      - name: Set up pnpm
+        shell: bash
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.9.0 --activate
+          test "$(node --version)" = "v24.13.0"
+          test "$(pnpm --version)" = "11.9.0"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        timeout-minutes: 15
+
+      - name: Run focused unit regression
+        run: pnpm exec vitest run --project unit packages/plugin-cloud-storage/src/hooks/afterChange.spec.ts --retry=0
+
+      - name: Run cloud storage plugin unit coverage
+        run: pnpm exec vitest run --project unit packages/plugin-cloud-storage/src --retry=0
+
+      - name: Check formatting
+        run: pnpm exec prettier --check packages/plugin-cloud-storage/src/hooks/afterChange.ts packages/plugin-cloud-storage/src/hooks/afterChange.spec.ts
+
+      - name: Lint changed files
+        run: pnpm exec eslint packages/plugin-cloud-storage/src/hooks/afterChange.ts packages/plugin-cloud-storage/src/hooks/afterChange.spec.ts
+
+      - name: Build cloud storage plugin
+        run: pnpm --filter @payloadcms/plugin-cloud-storage build
+        timeout-minutes: 10
+
+      - name: Start PostgreSQL and LocalStack
+        shell: bash
+        run: |
+          set -euo pipefail
+          for i in 1 2 3; do
+            docker compose -f test/docker-compose.yml --profile postgres --profile storage pull postgres localstack && break
+            test "$i" -lt 3
+            sleep 10
+          done
+          docker compose -f test/docker-compose.yml --profile postgres --profile storage up -d --wait postgres localstack
+
+      - name: Run cloud storage integration on PostgreSQL and S3 emulator
+        run: pnpm exec vitest run --project int test/plugin-cloud-storage/int.spec.ts --retry=0
+        timeout-minutes: 15
+
+      - name: Verify tested source stayed exact
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+          test "$(git hash-object packages/plugin-cloud-storage/src/hooks/afterChange.ts)" = "9069bf9abbfad3ed033cb90c0c4576e12352a7d4"
+          test "$(git hash-object packages/plugin-cloud-storage/src/hooks/afterChange.spec.ts)" = "3be6745d285c9963b0bb3d4a6e133c614e811bc5"
+          git diff --check "$BASE_SHA"..HEAD
