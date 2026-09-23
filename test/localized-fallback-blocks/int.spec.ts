@@ -20,7 +20,7 @@ describe('localized blocks fallback publishing', { db: (adapter) => adapter.star
     await payload.destroy()
   })
 
-  it('preserves block metadata when publishing a locale that is using fallback blocks', async () => {
+  it('preserves block metadata when publishing fallback-resolved form data to a locale', async () => {
     const makeTab = (suffix: string) => ({
       layout: [
         {
@@ -44,15 +44,34 @@ describe('localized blocks fallback publishing', { db: (adapter) => adapter.star
       overrideAccess: true,
     })
 
+    // Match the admin form after switching from the populated default locale to an empty
+    // secondary locale: the form is showing the default locale through fallback resolution,
+    // and FormSubmit sends those visible values back when "Publish in <locale>" is used.
+    const fallbackDoc = await payload.findByID({
+      id: page.id,
+      collection: 'pages',
+      fallbackLocale: 'en',
+      locale: 'es',
+      overrideAccess: true,
+    })
+
+    for (const tabName of ['tab1', 'tab2', 'tab3'] as const) {
+      expect(fallbackDoc[tabName]?.layout?.[0]?.blockType).toBe('callToAction')
+    }
+
     const firstPublish = await payload.update({
       id: page.id,
       collection: 'pages',
       data: {
         _status: 'published',
+        tab1: fallbackDoc.tab1,
+        tab2: fallbackDoc.tab2,
+        tab3: fallbackDoc.tab3,
       },
       fallbackLocale: 'en',
       locale: 'es',
       overrideAccess: true,
+      publishSpecificLocale: 'es',
     })
 
     for (const tabName of ['tab1', 'tab2', 'tab3'] as const) {
@@ -83,6 +102,7 @@ describe('localized blocks fallback publishing', { db: (adapter) => adapter.star
         fallbackLocale: 'en',
         locale: 'es',
         overrideAccess: true,
+        publishSpecificLocale: 'es',
       })
     } catch (error) {
       secondPublishError = error
