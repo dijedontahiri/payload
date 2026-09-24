@@ -71,6 +71,12 @@ test.describe('issue 18275 localized fallback blocks', () => {
     expect(docIDFromAdmin, 'issue 18275 setup: autosave should create the draft document').toBeTruthy()
     docID = docIDFromAdmin as string
 
+    // Autosave turns the create view into a persisted document. Navigate to the stable edit URL
+    // before interacting with tabs so redirects from the create lifecycle cannot strand the test
+    // on the dashboard while still preserving the real Admin/autosave document creation path.
+    await page.goto(url.edit(docID))
+    await waitForFormReady(page)
+
     await page.getByRole('tab', { name: 'Content' }).click()
 
     for (const [tabName, tabLabel, suffix] of [
