@@ -4,7 +4,9 @@ import { expect, test } from '@playwright/test'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+import { addBlock } from '../__helpers/e2e/fields/blocks/index.js'
 import { changeLocale, ensureCompilationIsDone, waitForFormReady } from '../__helpers/e2e/helpers.js'
+import { waitForAutoSaveToRunAndComplete } from '../__helpers/e2e/waitForAutoSaveToRunAndComplete.js'
 import { AdminUrlUtil } from '../__helpers/shared/adminUrlUtil.js'
 import { initPayloadE2ENoConfig } from '../__helpers/shared/initPayloadE2ENoConfig.js'
 import { devUser } from '../credentials.js'
@@ -29,45 +31,6 @@ test.describe('issue 18275 localized fallback blocks', () => {
     await payload.create({
       collection: 'users',
       data: devUser,
-      overrideAccess: true,
-    })
-
-    const makeTab = (suffix: string) => ({
-      layout: [
-        {
-          blockName: `CTA ${suffix}`,
-          blockType: 'callToAction',
-          text: `English ${suffix}`,
-        },
-      ],
-    })
-
-    // Match the reporter's new-page lifecycle and the precondition behind the earlier
-    // block-metadata bug class: an autosaved draft exists before blocks are added, so the
-    // published/main document does not already contain block metadata.
-    const doc = await payload.create({
-      collection: 'pages',
-      data: {
-        _status: 'draft',
-        title: documentTitle,
-      },
-      draft: true,
-      locale: 'en',
-      overrideAccess: true,
-    })
-    docID = doc.id
-
-    await payload.update({
-      id: docID,
-      collection: 'pages',
-      data: {
-        _status: 'draft',
-        tab1: makeTab('one'),
-        tab2: makeTab('two'),
-        tab3: makeTab('three'),
-      },
-      draft: true,
-      locale: 'en',
       overrideAccess: true,
     })
   })
@@ -97,8 +60,34 @@ test.describe('issue 18275 localized fallback blocks', () => {
   test('should preserve block metadata when fallback blocks are published twice into another locale', async ({}, testInfo) => {
     testInfo.setTimeout(120_000)
 
-    await page.goto(url.edit(docID))
+    // Follow the reporter's Admin lifecycle exactly: creating a new page starts autosave before
+    // the localized blocks are added. This matters because API-seeded drafts do not reproduce it.
+    await page.goto(url.create)
     await waitForFormReady(page)
+    await page.locator('#field-title').fill(documentTitle)
+    await waitForAutoSaveToRunAndComplete(page)
+
+    const docIDFromAdmin = await page.locator('.render-title').getAttribute('data-doc-id')
+    expect(docIDFromAdmin, 'issue 18275 setup: autosave should create the draft document').toBeTruthy()
+    docID = docIDFromAdmin as string
+
+    await page.getByRole('tab', { name: 'Content' }).click()
+
+    for (const [tabName, tabLabel, suffix] of [
+      ['tab1', 'Tab 1', 'one'],
+      ['tab2', 'Tab 2', 'two'],
+      ['tab3', 'Tab 3', 'three'],
+    ] as const) {
+      await page.getByRole('tab', { name: tabLabel }).click()
+      await addBlock({
+        blockToSelect: 'Call To Action',
+        fieldName: `${tabName}__layout`,
+        page,
+      })
+      await page.locator(`#field-${tabName}__layout__0__text`).fill(`English ${suffix}`)
+    }
+
+    await waitForAutoSaveToRunAndComplete(page)
     await changeLocale(page, 'es')
     await waitForFormReady(page)
 
@@ -123,9 +112,22 @@ test.describe('issue 18275 localized fallback blocks', () => {
     ).toBeLessThan(400)
     await waitForFormReady(page)
 
-    // The reporter observes fallback blocks being injected into form state after the first
-    // locale-specific publish. That makes the form publishable again without another manual edit.
-    // If this precondition is absent, the setup still does not reproduce the reported lifecycle.
+    // The reported corruption requires fallback blocks to be injected into the alternative-locale
+    // form after the first publish. If that does not occur, the second publish cannot reproduce the
+    // malformed block metadata path and this is still only a setup failure.
+    await page.getByRole('tab', { name: 'Content' }).click()
+    for (const [tabName, tabLabel] of [
+      ['tab1', 'Tab 1'],
+      ['tab2', 'Tab 2'],
+      ['tab3', 'Tab 3'],
+    ] as const) {
+      await page.getByRole('tab', { name: tabLabel }).click()
+      await expect(
+        page.locator(`#field-${tabName}__layout > .blocks-field__rows > div > .blocks-field__row`),
+        `issue 18275 setup: fallback block should appear in ${tabName} after first locale publish`,
+      ).toHaveCount(1, { timeout: 10_000 })
+    }
+
     await expect(
       page.locator('.form-submit:has(#action-save) .popup-button'),
       'issue 18275 setup: repeated locale publish should become enabled after fallback form state is applied',
