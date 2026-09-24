@@ -5,7 +5,12 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { addBlock } from '../__helpers/e2e/fields/blocks/index.js'
-import { changeLocale, ensureCompilationIsDone, waitForFormReady } from '../__helpers/e2e/helpers.js'
+import {
+  changeLocale,
+  ensureCompilationIsDone,
+  switchTab,
+  waitForFormReady,
+} from '../__helpers/e2e/helpers.js'
 import { waitForAutoSaveToRunAndComplete } from '../__helpers/e2e/waitForAutoSaveToRunAndComplete.js'
 import { AdminUrlUtil } from '../__helpers/shared/adminUrlUtil.js'
 import { initPayloadE2ENoConfig } from '../__helpers/shared/initPayloadE2ENoConfig.js'
@@ -19,6 +24,10 @@ let page: Page
 let payload: any
 let serverURL: string
 let url: AdminUrlUtil
+
+const selectTab = async (label: string) => {
+  await switchTab(page, `button.tabs-field__tab-button:has-text("${label}")`)
+}
 
 test.describe('issue 18275 localized fallback blocks', () => {
   test.beforeAll(async ({ browser }, testInfo) => {
@@ -77,14 +86,14 @@ test.describe('issue 18275 localized fallback blocks', () => {
     await page.goto(url.edit(docID))
     await waitForFormReady(page)
 
-    await page.getByRole('tab', { name: 'Content' }).click()
+    await selectTab('Content')
 
     for (const [tabName, tabLabel, suffix] of [
       ['tab1', 'Tab 1', 'one'],
       ['tab2', 'Tab 2', 'two'],
       ['tab3', 'Tab 3', 'three'],
     ] as const) {
-      await page.getByRole('tab', { name: tabLabel }).click()
+      await selectTab(tabLabel)
       await addBlock({
         blockToSelect: 'Call To Action',
         fieldName: `${tabName}__layout`,
@@ -121,13 +130,13 @@ test.describe('issue 18275 localized fallback blocks', () => {
     // The reported corruption requires fallback blocks to be injected into the alternative-locale
     // form after the first publish. If that does not occur, the second publish cannot reproduce the
     // malformed block metadata path and this is still only a setup failure.
-    await page.getByRole('tab', { name: 'Content' }).click()
+    await selectTab('Content')
     for (const [tabName, tabLabel] of [
       ['tab1', 'Tab 1'],
       ['tab2', 'Tab 2'],
       ['tab3', 'Tab 3'],
     ] as const) {
-      await page.getByRole('tab', { name: tabLabel }).click()
+      await selectTab(tabLabel)
       await expect(
         page.locator(`#field-${tabName}__layout > .blocks-field__rows > div > .blocks-field__row`),
         `issue 18275 setup: fallback block should appear in ${tabName} after first locale publish`,
