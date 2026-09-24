@@ -118,6 +118,18 @@ test.describe('issue 18275 localized fallback blocks', () => {
     await changeLocale(page, 'es')
     await waitForFormReady(page)
 
+    // The reported reproduction keeps the required non-localized title while changing locales.
+    // Current Admin form state can leave an unchanged non-localized input out of the locale-specific
+    // submit payload, causing validation to fail before the fallback-block path is reached. Verify
+    // the value is present, then re-emit its input event without changing the reporter's data so this
+    // control isolates the blocks corruption rather than an unrelated required-field precondition.
+    const titleInput = page.locator('#field-title')
+    await expect(
+      titleInput,
+      'issue 18275 setup: non-localized title should remain visible after changing locale',
+    ).toHaveValue(documentTitle)
+    await titleInput.fill(documentTitle)
+
     const publishSelectedLocale = async () => {
       const responsePromise = page.waitForResponse(
         (response) =>
