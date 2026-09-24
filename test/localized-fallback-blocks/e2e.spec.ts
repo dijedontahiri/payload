@@ -11,7 +11,6 @@ import {
   switchTab,
   waitForFormReady,
 } from '../__helpers/e2e/helpers.js'
-import { toggleBlockOrArrayRow } from '../__helpers/e2e/toggleCollapsible.js'
 import { waitForAutoSaveToRunAndComplete } from '../__helpers/e2e/waitForAutoSaveToRunAndComplete.js'
 import { AdminUrlUtil } from '../__helpers/shared/adminUrlUtil.js'
 import { initPayloadE2ENoConfig } from '../__helpers/shared/initPayloadE2ENoConfig.js'
@@ -101,16 +100,16 @@ test.describe('issue 18275 localized fallback blocks', () => {
         page,
       })
 
-      // The reporter's blocks field uses initCollapsed: true. Payload intentionally hides the
-      // block's fields until the row is expanded, so open the newly-added row before entering its
-      // localized text. Waiting for the text input while the row is collapsed is a harness error,
-      // not evidence for #18275.
-      await toggleBlockOrArrayRow({
-        fieldName: `${tabName}__layout`,
-        page,
-        rowIndex: 0,
-        targetState: 'open',
-      })
+      // The reporter's blocks field uses initCollapsed: true. For a nested named tab the generic
+      // toggle helper's row-id convention does not match the rendered row, so scope the toggle to
+      // the exact row locator addBlock has already verified exists.
+      const row = page
+        .locator(`#field-${tabName}__layout > .blocks-field__rows > div > .blocks-field__row`)
+        .last()
+      const toggler = row.locator('button.collapsible__toggle')
+      await expect(toggler).toHaveClass(/collapsible__toggle--collapsed/)
+      await toggler.click()
+      await expect(toggler).toHaveClass(/collapsible__toggle--open/)
 
       await page.locator(`#field-${tabName}__layout__0__text`).fill(`English ${suffix}`)
     }
