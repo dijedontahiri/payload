@@ -49,6 +49,15 @@ export default buildConfigWithDefaults({
             {
               fields: [
                 {
+                  name: 'heroText',
+                  type: 'text',
+                },
+              ],
+              label: 'Hero',
+            },
+            {
+              fields: [
+                {
                   type: 'tabs',
                   tabs: ['tab1', 'tab2', 'tab3'].map((name, index) => ({
                     name,
@@ -78,6 +87,15 @@ export default buildConfigWithDefaults({
                 },
               ],
               label: 'Content',
+            },
+            {
+              fields: [
+                {
+                  name: 'metaDescription',
+                  type: 'text',
+                },
+              ],
+              label: 'SEO',
             },
           ],
         },
