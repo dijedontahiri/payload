@@ -15,7 +15,7 @@ jobs:
     timeout-minutes: 20
     env:
       BASE_SHA: 7691ba3515ead1f9b0e571eba88bf3fa83a0878f
-      REPRO_SHA: 1a6718dac0a27498973c4a9058deae170cf51c49
+      REPRO_SHA: fda8d242b0386a4f470d866610eb43138671c950
       PAYLOAD_DATABASE: postgres
       POSTGRES_URL: postgres://payload:payload@127.0.0.1:5433/payload
       NODE_OPTIONS: --no-deprecation --no-experimental-strip-types --max-old-space-size=6144
@@ -88,12 +88,17 @@ jobs:
             exit 2
           fi
 
+          if grep -Fq "issue 18275 setup:" /tmp/repro-e2e.log; then
+            echo "Browser reproduction precondition was not reached" >&2
+            exit 1
+          fi
+
           if grep -Eq "No test suite found|Cannot find module|browserType.launch|ECONNREFUSED|Timed out waiting for|Compilation failed|Target page, context or browser has been closed|beforeAll.*timeout" /tmp/repro-e2e.log; then
             echo "Browser reproduction failed for harness/setup reasons" >&2
             exit 1
           fi
 
-          grep -F "issue 18275 regression:" /tmp/repro-e2e.log
+          grep -Eq "issue 18275 regression: (second Admin UI locale publish should succeed|tab[123] should retain block(Type|Name))" /tmp/repro-e2e.log
           grep -F "1 failed" /tmp/repro-e2e.log
 
       - name: Verify immutable baseline and isolated browser regression scope
