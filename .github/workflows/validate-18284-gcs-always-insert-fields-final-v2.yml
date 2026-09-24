@@ -1,0 +1,83 @@
+name: Validate issue 18284 GCS alwaysInsertFields candidate v2
+
+on:
+  push:
+    branches:
+      - validate/18284-gcs-always-insert-fields-final-v2
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    if: github.repository == 'dijedontahiri/payload'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      BASE_SHA: d4c81bb92784a5e806e14a51331c41a9accdc3c7
+      CANDIDATE_SHA: 62fecaf79a58a6402ff23b0ed7e117fb7aa1fa5b
+      NODE_OPTIONS: --no-deprecation --no-experimental-strip-types --max-old-space-size=4096
+      DO_NOT_TRACK: '1'
+      NEXT_TELEMETRY_DISABLED: '1'
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v5
+        with:
+          repository: dijedontahiri/payload
+          ref: 62fecaf79a58a6402ff23b0ed7e117fb7aa1fa5b
+          fetch-depth: 0
+
+      - name: Verify candidate identity and scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+          test "$(git merge-base "$BASE_SHA" HEAD)" = "$BASE_SHA"
+          test "$(git diff --name-only "$BASE_SHA"..HEAD | sort | tr '\n' ' ')" = "packages/storage-gcs/src/index.spec.ts packages/storage-gcs/src/index.ts "
+          git diff --check "$BASE_SHA"..HEAD
+          test "$(git hash-object packages/storage-gcs/src/index.ts)" = "45d04120fa23451dbbe8c1b0849ef4f9505bdb6f"
+          test "$(git hash-object packages/storage-gcs/src/index.spec.ts)" = "125248dbc46a576690883a6f22624f97e2a52cde"
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24.13.0
+
+      - name: Set up pnpm
+        shell: bash
+        run: |
+          set -euo pipefail
+          corepack enable
+          corepack prepare pnpm@11.9.0 --activate
+          test "$(node --version)" = "v24.13.0"
+          test "$(pnpm --version)" = "11.9.0"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        timeout-minutes: 15
+
+      - name: Run focused regression
+        run: pnpm exec vitest run --project unit packages/storage-gcs/src/index.spec.ts --retry=0
+
+      - name: Run storage GCS unit coverage
+        run: pnpm exec vitest run --project unit packages/storage-gcs/src --retry=0
+
+      - name: Check formatting
+        run: pnpm exec prettier --check packages/storage-gcs/src/index.ts packages/storage-gcs/src/index.spec.ts
+
+      - name: Lint changed source
+        run: pnpm exec eslint packages/storage-gcs/src/index.ts
+
+      - name: Build storage GCS with workspace dependencies
+        run: pnpm run build:storage-gcs
+        timeout-minutes: 15
+
+      - name: Verify tested source stayed exact
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+          test "$(git hash-object packages/storage-gcs/src/index.ts)" = "45d04120fa23451dbbe8c1b0849ef4f9505bdb6f"
+          test "$(git hash-object packages/storage-gcs/src/index.spec.ts)" = "125248dbc46a576690883a6f22624f97e2a52cde"
+          git diff --check "$BASE_SHA"..HEAD
