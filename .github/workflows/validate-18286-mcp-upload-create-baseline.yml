@@ -1,0 +1,22 @@
+name: Validate issue 18286 baseline
+on:
+  push:
+    branches:
+      - validate/18286-mcp-upload-create-baseline
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          repository: dijedontahiri/payload
+          ref: 37732afed0a2195b7def330e95839e4f1ca425b8
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24.13.0
+      - run: corepack enable && corepack prepare pnpm@11.9.0 --activate
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec vitest run --project unit packages/plugin-mcp/src/mcp/tools/resource/create.spec.ts --retry=0
