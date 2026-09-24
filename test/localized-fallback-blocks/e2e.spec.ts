@@ -42,19 +42,34 @@ test.describe('issue 18275 localized fallback blocks', () => {
       ],
     })
 
+    // Match the reporter's new-page lifecycle and the precondition behind the earlier
+    // block-metadata bug class: an autosaved draft exists before blocks are added, so the
+    // published/main document does not already contain block metadata.
     const doc = await payload.create({
       collection: 'pages',
       data: {
-        _status: 'published',
-        tab1: makeTab('one'),
-        tab2: makeTab('two'),
-        tab3: makeTab('three'),
+        _status: 'draft',
         title: documentTitle,
       },
+      draft: true,
       locale: 'en',
       overrideAccess: true,
     })
     docID = doc.id
+
+    await payload.update({
+      id: docID,
+      collection: 'pages',
+      data: {
+        _status: 'draft',
+        tab1: makeTab('one'),
+        tab2: makeTab('two'),
+        tab3: makeTab('three'),
+      },
+      draft: true,
+      locale: 'en',
+      overrideAccess: true,
+    })
   })
 
   test.afterAll(async () => {
@@ -106,9 +121,16 @@ test.describe('issue 18275 localized fallback blocks', () => {
       firstResponse.status(),
       'issue 18275 regression: first Admin UI locale publish should succeed',
     ).toBeLessThan(400)
+    await waitForFormReady(page)
 
-    // The reported corruption appears after the fallback block state from the first publish is
-    // submitted a second time. Repeating the exact Admin action is required to expose it.
+    // The reporter observes fallback blocks being injected into form state after the first
+    // locale-specific publish. That makes the form publishable again without another manual edit.
+    // If this precondition is absent, the setup still does not reproduce the reported lifecycle.
+    await expect(
+      page.locator('.form-submit:has(#action-save) .popup-button'),
+      'issue 18275 setup: repeated locale publish should become enabled after fallback form state is applied',
+    ).toBeEnabled({ timeout: 10_000 })
+
     const secondResponse = await publishSelectedLocale()
     expect(
       secondResponse.status(),
