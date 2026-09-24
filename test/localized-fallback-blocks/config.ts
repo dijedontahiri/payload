@@ -41,6 +41,7 @@ export default buildConfigWithDefaults({
         {
           name: 'title',
           type: 'text',
+          required: true,
         },
         {
           type: 'tabs',
@@ -49,13 +50,17 @@ export default buildConfigWithDefaults({
               fields: [
                 {
                   type: 'tabs',
-                  tabs: ['tab1', 'tab2', 'tab3'].map((name) => ({
+                  tabs: ['tab1', 'tab2', 'tab3'].map((name, index) => ({
                     name,
+                    label: `Tab ${index + 1}`,
                     fields: [
                       {
                         name: 'layout',
                         type: 'blocks',
                         localized: true,
+                        admin: {
+                          initCollapsed: true,
+                        },
                         blocks: [
                           {
                             slug: 'callToAction',
@@ -79,9 +84,13 @@ export default buildConfigWithDefaults({
       ],
       versions: {
         drafts: {
-          autosave: true,
+          autosave: {
+            interval: 100,
+          },
           localizeStatus: true,
+          schedulePublish: true,
         },
+        maxPerDoc: 50,
       },
     },
   ],
