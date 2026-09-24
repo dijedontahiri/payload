@@ -123,6 +123,28 @@ export const gcsStorage: GcsStoragePlugin =
     })
 
     if (isPluginDisabled) {
+      if (gcsStorageOptions.alwaysInsertFields) {
+        const collectionsWithoutAdapter: CloudStoragePluginOptions['collections'] = Object.entries(
+          gcsStorageOptions.collections,
+        ).reduce(
+          (acc, [slug, collOptions]) => ({
+            ...acc,
+            [slug]: {
+              ...(collOptions === true ? {} : collOptions),
+              adapter: null,
+            },
+          }),
+          {} as Record<string, CollectionOptions>,
+        )
+
+        return cloudStoragePlugin({
+          alwaysInsertFields: true,
+          collections: collectionsWithoutAdapter,
+          enabled: false,
+          useCompositePrefixes: gcsStorageOptions.useCompositePrefixes,
+        })(incomingConfig)
+      }
+
       return incomingConfig
     }
 
