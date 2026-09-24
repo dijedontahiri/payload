@@ -11,6 +11,7 @@ import {
   switchTab,
   waitForFormReady,
 } from '../__helpers/e2e/helpers.js'
+import { toggleBlockOrArrayRow } from '../__helpers/e2e/toggleCollapsible.js'
 import { waitForAutoSaveToRunAndComplete } from '../__helpers/e2e/waitForAutoSaveToRunAndComplete.js'
 import { AdminUrlUtil } from '../__helpers/shared/adminUrlUtil.js'
 import { initPayloadE2ENoConfig } from '../__helpers/shared/initPayloadE2ENoConfig.js'
@@ -99,6 +100,18 @@ test.describe('issue 18275 localized fallback blocks', () => {
         fieldName: `${tabName}__layout`,
         page,
       })
+
+      // The reporter's blocks field uses initCollapsed: true. Payload intentionally hides the
+      // block's fields until the row is expanded, so open the newly-added row before entering its
+      // localized text. Waiting for the text input while the row is collapsed is a harness error,
+      // not evidence for #18275.
+      await toggleBlockOrArrayRow({
+        fieldName: `${tabName}__layout`,
+        page,
+        rowIndex: 0,
+        targetState: 'open',
+      })
+
       await page.locator(`#field-${tabName}__layout__0__text`).fill(`English ${suffix}`)
     }
 
