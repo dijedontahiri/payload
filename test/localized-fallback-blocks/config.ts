@@ -1,10 +1,20 @@
 import { postgresAdapter } from '@payloadcms/db-postgres'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 import { buildConfigWithDefaults } from '../buildConfigWithDefaults.js'
 
+const filename = fileURLToPath(import.meta.url)
+const dirname = path.dirname(filename)
 const postgresURL = process.env.POSTGRES_URL || 'postgres://payload:payload@127.0.0.1:5433/payload'
 
 export default buildConfigWithDefaults({
+  admin: {
+    importMap: {
+      baseDir: path.resolve(dirname),
+    },
+    user: 'users',
+  },
   db: postgresAdapter({
     blocksAsJSON: true,
     pool: {
@@ -20,6 +30,11 @@ export default buildConfigWithDefaults({
     locales: ['en', 'es', 'de'],
   },
   collections: [
+    {
+      slug: 'users',
+      auth: true,
+      fields: [],
+    },
     {
       slug: 'pages',
       fields: [
