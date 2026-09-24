@@ -79,7 +79,7 @@ test.describe('issue 18275 localized fallback blocks', () => {
     await page?.close()
   })
 
-  test('should preserve block metadata when the Admin UI publishes fallback blocks into another locale', async ({}, testInfo) => {
+  test('should preserve block metadata when fallback blocks are published twice into another locale', async ({}, testInfo) => {
     testInfo.setTimeout(120_000)
 
     await page.goto(url.edit(docID))
@@ -87,20 +87,35 @@ test.describe('issue 18275 localized fallback blocks', () => {
     await changeLocale(page, 'es')
     await waitForFormReady(page)
 
-    const responsePromise = page.waitForResponse(
-      (response) =>
-        response.request().method() === 'PATCH' &&
-        response.url().includes(`/api/pages/${docID}`) &&
-        response.url().includes('publishSpecificLocale=es'),
-    )
+    const publishSelectedLocale = async () => {
+      const responsePromise = page.waitForResponse(
+        (response) =>
+          response.request().method() === 'PATCH' &&
+          response.url().includes(`/api/pages/${docID}`) &&
+          response.url().includes('publishSpecificLocale=es'),
+      )
 
-    await page.locator('.form-submit:has(#action-save) .popup-button').click()
-    await page.locator('#publish-locale').click()
+      await page.locator('.form-submit:has(#action-save) .popup-button').click()
+      await page.locator('#publish-locale').click()
 
-    const response = await responsePromise
-    expect(response.status()).toBeLessThan(400)
+      return responsePromise
+    }
 
-    const json = await response.json()
+    const firstResponse = await publishSelectedLocale()
+    expect(
+      firstResponse.status(),
+      'issue 18275 regression: first Admin UI locale publish should succeed',
+    ).toBeLessThan(400)
+
+    // The reported corruption appears after the fallback block state from the first publish is
+    // submitted a second time. Repeating the exact Admin action is required to expose it.
+    const secondResponse = await publishSelectedLocale()
+    expect(
+      secondResponse.status(),
+      'issue 18275 regression: second Admin UI locale publish should succeed',
+    ).toBeLessThan(400)
+
+    const json = await secondResponse.json()
     const published = json.doc
 
     for (const [tabName, suffix] of [
@@ -111,11 +126,11 @@ test.describe('issue 18275 localized fallback blocks', () => {
       const block = published?.[tabName]?.layout?.[0]
       expect(
         block?.blockType,
-        `issue 18275 regression: ${tabName} should retain blockType after Admin UI locale publish`,
+        `issue 18275 regression: ${tabName} should retain blockType after repeated Admin UI locale publish`,
       ).toBe('callToAction')
       expect(
         block?.blockName,
-        `issue 18275 regression: ${tabName} should retain blockName after Admin UI locale publish`,
+        `issue 18275 regression: ${tabName} should retain blockName after repeated Admin UI locale publish`,
       ).toBe(`CTA ${suffix}`)
     }
   })
