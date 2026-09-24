@@ -4,20 +4,19 @@ import { expect, test } from '@playwright/test'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { login } from '../__helpers/e2e/auth/login.js'
 import { changeLocale, ensureCompilationIsDone, waitForFormReady } from '../__helpers/e2e/helpers.js'
 import { AdminUrlUtil } from '../__helpers/shared/adminUrlUtil.js'
 import { initPayloadE2ENoConfig } from '../__helpers/shared/initPayloadE2ENoConfig.js'
 import { devUser } from '../credentials.js'
 
 const dirname = path.dirname(fileURLToPath(import.meta.url))
+const documentTitle = 'Issue 18275 browser reproduction'
 
 let docID: number | string
 let page: Page
 let payload: any
 let serverURL: string
 let url: AdminUrlUtil
-let userID: number | string
 
 test.describe('issue 18275 localized fallback blocks', () => {
   test.beforeAll(async ({ browser }, testInfo) => {
@@ -27,13 +26,11 @@ test.describe('issue 18275 localized fallback blocks', () => {
     page = await browser.newPage()
     await ensureCompilationIsDone({ page, serverURL })
 
-    const user = await payload.create({
+    await payload.create({
       collection: 'users',
       data: devUser,
       overrideAccess: true,
     })
-    userID = user.id
-    await login({ page, serverURL })
 
     const makeTab = (suffix: string) => ({
       layout: [
@@ -52,7 +49,7 @@ test.describe('issue 18275 localized fallback blocks', () => {
         tab1: makeTab('one'),
         tab2: makeTab('two'),
         tab3: makeTab('three'),
-        title: 'Issue 18275 browser reproduction',
+        title: documentTitle,
       },
       locale: 'en',
       overrideAccess: true,
@@ -61,8 +58,24 @@ test.describe('issue 18275 localized fallback blocks', () => {
   })
 
   test.afterAll(async () => {
-    await payload.delete({ collection: 'pages', id: docID, overrideAccess: true })
-    await payload.delete({ collection: 'users', id: userID, overrideAccess: true })
+    await payload.delete({
+      collection: 'pages',
+      overrideAccess: true,
+      where: {
+        title: {
+          equals: documentTitle,
+        },
+      },
+    })
+    await payload.delete({
+      collection: 'users',
+      overrideAccess: true,
+      where: {
+        email: {
+          equals: devUser.email,
+        },
+      },
+    })
     await page?.close()
   })
 
