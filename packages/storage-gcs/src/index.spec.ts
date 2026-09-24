@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest'
 import { gcsStorage } from './index.js'
 
 describe('gcsStorage', () => {
-  it('should insert storage fields when disabled and alwaysInsertFields is true', () => {
+  it('should insert storage fields when disabled and alwaysInsertFields is true', async () => {
     const config = {
       collections: [
         {
@@ -14,9 +14,9 @@ describe('gcsStorage', () => {
           upload: true,
         },
       ],
-    } as Config
+    } as unknown as Config
 
-    const result = gcsStorage({
+    const result = await gcsStorage({
       alwaysInsertFields: true,
       bucket: 'test-bucket',
       collections: { media: true },
