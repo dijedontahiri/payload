@@ -1,0 +1,101 @@
+name: Validate issue 18275 localized fallback blocks browser reproduction
+
+on:
+  push:
+    branches:
+      - validate/18275-localized-fallback-blocks-e2e
+
+permissions:
+  contents: read
+
+jobs:
+  reproduce:
+    if: github.repository == 'dijedontahiri/payload'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    env:
+      BASE_SHA: 7691ba3515ead1f9b0e571eba88bf3fa83a0878f
+      REPRO_SHA: fde89d621b16662a6cf277e383a692ecfb39c0af
+      PAYLOAD_DATABASE: postgres
+      POSTGRES_URL: postgres://payload:payload@127.0.0.1:5433/payload
+      NODE_OPTIONS: --no-deprecation --no-experimental-strip-types --max-old-space-size=6144
+      DO_NOT_TRACK: '1'
+      NEXT_TELEMETRY_DISABLED: '1'
+    steps:
+      - name: Checkout validation tree
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Preserve browser regression and reset to exact baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse "$REPRO_SHA")" = "$REPRO_SHA"
+          git merge-base --is-ancestor "$BASE_SHA" "$REPRO_SHA"
+          mkdir -p /tmp/issue-18275
+          git show "$REPRO_SHA:test/localized-fallback-blocks/config.ts" > /tmp/issue-18275/config.ts
+          git show "$REPRO_SHA:test/localized-fallback-blocks/e2e.spec.ts" > /tmp/issue-18275/e2e.spec.ts
+          git reset --hard "$BASE_SHA"
+          git clean -fd
+          test "$(git rev-parse HEAD)" = "$BASE_SHA"
+          mkdir -p test/localized-fallback-blocks
+          cp /tmp/issue-18275/config.ts test/localized-fallback-blocks/config.ts
+          cp /tmp/issue-18275/e2e.spec.ts test/localized-fallback-blocks/e2e.spec.ts
+          git diff --check
+          test -z "$(git diff --name-only)"
+          test "$(git ls-files --others --exclude-standard test/localized-fallback-blocks | sort | tr '\n' ' ')" = "test/localized-fallback-blocks/config.ts test/localized-fallback-blocks/e2e.spec.ts "
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24.13.0
+
+      - name: Set up pnpm
+        shell: bash
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.9.0 --activate
+          test "$(node --version)" = "v24.13.0"
+          test "$(pnpm --version)" = "11.9.0"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        timeout-minutes: 15
+
+      - name: Install Chromium
+        run: pnpm exec playwright install --with-deps chromium
+        timeout-minutes: 10
+
+      - name: Start PostgreSQL
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker compose -f test/docker-compose.yml --profile postgres up -d --wait postgres
+
+      - name: Prove browser path reproduces issue 18275
+        shell: bash
+        run: |
+          set -o pipefail
+          set +e
+          CI=false pnpm test:e2e localized-fallback-blocks --workers=1 2>&1 | tee /tmp/repro-e2e.log
+          status=${PIPESTATUS[0]}
+          set -e
+          if [ "$status" -eq 0 ]; then
+            echo "Browser baseline did not reproduce issue 18275" >&2
+            exit 2
+          fi
+          grep -F "issue 18275 regression:" /tmp/repro-e2e.log
+          if grep -Eq "No test suite found|Cannot find module|browserType.launch|ECONNREFUSED|Timed out waiting for|Compilation failed" /tmp/repro-e2e.log; then
+            echo "Browser reproduction failed for harness/setup reasons" >&2
+            exit 1
+          fi
+
+      - name: Verify immutable baseline and isolated browser regression scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$BASE_SHA"
+          git diff --check
+          test -z "$(git diff --name-only)"
+          test "$(git ls-files --others --exclude-standard test/localized-fallback-blocks | sort | tr '\n' ' ')" = "test/localized-fallback-blocks/config.ts test/localized-fallback-blocks/e2e.spec.ts "
