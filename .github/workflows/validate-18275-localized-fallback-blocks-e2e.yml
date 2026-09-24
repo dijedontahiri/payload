@@ -15,7 +15,7 @@ jobs:
     timeout-minutes: 20
     env:
       BASE_SHA: 7691ba3515ead1f9b0e571eba88bf3fa83a0878f
-      REPRO_SHA: f9e1db3e92fa80bfb27232da149ea30f4be44c43
+      REPRO_SHA: f319339d7421378eef399c35ea343425798eabfc
       PAYLOAD_DATABASE: postgres
       POSTGRES_URL: postgres://payload:payload@127.0.0.1:5433/payload
       NODE_OPTIONS: --no-deprecation --no-experimental-strip-types --max-old-space-size=6144
