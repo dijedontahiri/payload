@@ -4,16 +4,20 @@ import { expect, test } from '@playwright/test'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+import { login } from '../__helpers/e2e/auth/login.js'
 import { changeLocale, ensureCompilationIsDone, waitForFormReady } from '../__helpers/e2e/helpers.js'
 import { AdminUrlUtil } from '../__helpers/shared/adminUrlUtil.js'
 import { initPayloadE2ENoConfig } from '../__helpers/shared/initPayloadE2ENoConfig.js'
+import { devUser } from '../credentials.js'
 
 const dirname = path.dirname(fileURLToPath(import.meta.url))
 
+let docID: number | string
 let page: Page
 let payload: any
 let serverURL: string
 let url: AdminUrlUtil
+let userID: number | string
 
 test.describe('issue 18275 localized fallback blocks', () => {
   test.beforeAll(async ({ browser }, testInfo) => {
@@ -22,13 +26,15 @@ test.describe('issue 18275 localized fallback blocks', () => {
     url = new AdminUrlUtil(serverURL, 'pages')
     page = await browser.newPage()
     await ensureCompilationIsDone({ page, serverURL })
-  })
 
-  test.afterAll(async () => {
-    await page?.close()
-  })
+    const user = await payload.create({
+      collection: 'users',
+      data: devUser,
+      overrideAccess: true,
+    })
+    userID = user.id
+    await login({ page, serverURL })
 
-  test('preserves block metadata when the Admin UI publishes fallback blocks into another locale', async () => {
     const makeTab = (suffix: string) => ({
       layout: [
         {
@@ -51,8 +57,19 @@ test.describe('issue 18275 localized fallback blocks', () => {
       locale: 'en',
       overrideAccess: true,
     })
+    docID = doc.id
+  })
 
-    await page.goto(url.edit(doc.id))
+  test.afterAll(async () => {
+    await payload.delete({ collection: 'pages', id: docID, overrideAccess: true })
+    await payload.delete({ collection: 'users', id: userID, overrideAccess: true })
+    await page?.close()
+  })
+
+  test('should preserve block metadata when the Admin UI publishes fallback blocks into another locale', async ({}, testInfo) => {
+    testInfo.setTimeout(120_000)
+
+    await page.goto(url.edit(docID))
     await waitForFormReady(page)
     await changeLocale(page, 'es')
     await waitForFormReady(page)
@@ -60,7 +77,7 @@ test.describe('issue 18275 localized fallback blocks', () => {
     const responsePromise = page.waitForResponse(
       (response) =>
         response.request().method() === 'PATCH' &&
-        response.url().includes(`/api/pages/${doc.id}`) &&
+        response.url().includes(`/api/pages/${docID}`) &&
         response.url().includes('publishSpecificLocale=es'),
     )
 
