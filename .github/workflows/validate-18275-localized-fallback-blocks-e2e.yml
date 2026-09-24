@@ -12,10 +12,10 @@ jobs:
   reproduce:
     if: github.repository == 'dijedontahiri/payload'
     runs-on: ubuntu-24.04
-    timeout-minutes: 50
+    timeout-minutes: 20
     env:
       BASE_SHA: 7691ba3515ead1f9b0e571eba88bf3fa83a0878f
-      REPRO_SHA: fde89d621b16662a6cf277e383a692ecfb39c0af
+      REPRO_SHA: c1da27a90926b8cf75429b7f08c59ec86b8b6b5a
       PAYLOAD_DATABASE: postgres
       POSTGRES_URL: postgres://payload:payload@127.0.0.1:5433/payload
       NODE_OPTIONS: --no-deprecation --no-experimental-strip-types --max-old-space-size=6144
@@ -61,35 +61,40 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-        timeout-minutes: 15
+        timeout-minutes: 10
 
       - name: Install Chromium
         run: pnpm exec playwright install --with-deps chromium
-        timeout-minutes: 10
+        timeout-minutes: 5
 
       - name: Start PostgreSQL
         shell: bash
         run: |
           set -euo pipefail
           docker compose -f test/docker-compose.yml --profile postgres up -d --wait postgres
+        timeout-minutes: 3
 
       - name: Prove browser path reproduces issue 18275
         shell: bash
         run: |
-          set -o pipefail
           set +e
-          CI=false pnpm test:e2e localized-fallback-blocks --workers=1 2>&1 | tee /tmp/repro-e2e.log
-          status=${PIPESTATUS[0]}
+          timeout --kill-after=30s 6m env CI=false pnpm test:e2e localized-fallback-blocks --workers=1 > /tmp/repro-e2e.log 2>&1
+          status=$?
           set -e
+          cat /tmp/repro-e2e.log
+
           if [ "$status" -eq 0 ]; then
             echo "Browser baseline did not reproduce issue 18275" >&2
             exit 2
           fi
-          grep -F "issue 18275 regression:" /tmp/repro-e2e.log
-          if grep -Eq "No test suite found|Cannot find module|browserType.launch|ECONNREFUSED|Timed out waiting for|Compilation failed" /tmp/repro-e2e.log; then
+
+          if grep -Eq "No test suite found|Cannot find module|browserType.launch|ECONNREFUSED|Timed out waiting for|Compilation failed|Target page, context or browser has been closed" /tmp/repro-e2e.log; then
             echo "Browser reproduction failed for harness/setup reasons" >&2
             exit 1
           fi
+
+          grep -F "issue 18275 regression:" /tmp/repro-e2e.log
+          grep -F "1 failed" /tmp/repro-e2e.log
 
       - name: Verify immutable baseline and isolated browser regression scope
         shell: bash
