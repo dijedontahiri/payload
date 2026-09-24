@@ -15,7 +15,7 @@ jobs:
     timeout-minutes: 20
     env:
       BASE_SHA: 7691ba3515ead1f9b0e571eba88bf3fa83a0878f
-      REPRO_SHA: c1da27a90926b8cf75429b7f08c59ec86b8b6b5a
+      REPRO_SHA: 84d319f647c387faf150fbe46f8a52e7e95fc12d
       PAYLOAD_DATABASE: postgres
       POSTGRES_URL: postgres://payload:payload@127.0.0.1:5433/payload
       NODE_OPTIONS: --no-deprecation --no-experimental-strip-types --max-old-space-size=6144
@@ -88,7 +88,7 @@ jobs:
             exit 2
           fi
 
-          if grep -Eq "No test suite found|Cannot find module|browserType.launch|ECONNREFUSED|Timed out waiting for|Compilation failed|Target page, context or browser has been closed" /tmp/repro-e2e.log; then
+          if grep -Eq "No test suite found|Cannot find module|browserType.launch|ECONNREFUSED|Timed out waiting for|Compilation failed|Target page, context or browser has been closed|beforeAll.*timeout" /tmp/repro-e2e.log; then
             echo "Browser reproduction failed for harness/setup reasons" >&2
             exit 1
           fi
